@@ -49,7 +49,7 @@ export class InteractiveBenchmarkAuthoring {
     let testCommands: readonly string[];
 
     if (source === "repo") {
-      repoUrl = await this.required("Repo URL");
+      repoUrl = await this.required("Repo URL or path");
       commit = optional(await this.ask("Commit"));
       setupCommands = parseList(await this.ask("Setup commands"));
       testCommands = parseList(await this.ask("Test commands"));

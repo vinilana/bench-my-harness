@@ -29,6 +29,7 @@ Questions:
 - name;
 - category;
 - repo URL or fixture path;
+- local repo path, as a convenience alternative to repo URL;
 - commit, when repo URL is used;
 - setup commands;
 - test commands;
@@ -73,8 +74,9 @@ Rules:
   - `expected_output.tests_must_pass`: `true`
   - `evaluation.scoring.tests`: `1`
 - Supports `--fixture-path` as an alternative to `--repo-url`.
+- Supports `--repo-path .` as a convenience alias for the current working tree; the CLI resolves it to an absolute `file://` URL in `repo.url`.
 - Supports `--prompt-file path/to/spec.md` as an alternative to `--prompt`.
-- Rejects commands that specify both `--repo-url` and `--fixture-path`.
+- Rejects commands that specify more than one of `--repo-url`, `--repo-path`, and `--fixture-path`.
 - Rejects commands that specify both `--prompt` and `--prompt-file`.
 - Rejects missing `--prompt`.
 - Rejects `--prompt-file` values that do not end in `.md`.
@@ -212,6 +214,7 @@ Add tests before implementation:
   - `init benchmark --template` writes a `.benchmark.json`;
   - generated file passes `validate benchmark`;
   - `--fixture-path` creates fixture benchmarks;
+  - `--repo-path .` writes an absolute `file://` repo URL for the current working directory;
   - `--prompt-file` writes `prompt.file`;
   - `--force` overwrites;
   - missing prompt or prompt file exits non-zero with a clear error.

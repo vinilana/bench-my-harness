@@ -1,6 +1,7 @@
 import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { describe, expect, test } from "vitest";
 import { runCli } from "../../src/adapters/inbound/cli/main.js";
 import { BenchmarkSchema } from "../../src/domain/benchmark/benchmark-schema.js";
@@ -129,6 +130,44 @@ describe("CLI benchmark init template mode", () => {
     expect(generated).not.toHaveProperty("repo");
   });
 
+  test("supports local repository paths", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "bmh-cli-init-"));
+    const outputPath = join(dir, "repo-path.benchmark.json");
+
+    const exitCode = await runCli(
+      [
+        "node",
+        "bench-my-harness",
+        "init",
+        "benchmark",
+        "--template",
+        "--id",
+        "repo-path-001",
+        "--name",
+        "Repo path benchmark",
+        "--category",
+        "feature",
+        "--repo-path",
+        ".",
+        "--prompt",
+        "Do the work.",
+        "--test-command",
+        "npm test",
+        "--output",
+        outputPath
+      ],
+      { ...createRuntime(), cwd: dir }
+    );
+
+    const generated = BenchmarkSchema.parse(JSON.parse(await readFile(outputPath, "utf8")));
+    expect(exitCode).toBe(0);
+    expect(generated).toMatchObject({
+      repo: {
+        url: pathToFileURL(resolve(dir, ".")).href
+      }
+    });
+  });
+
   test("supports markdown prompt files", async () => {
     const dir = await mkdtemp(join(tmpdir(), "bmh-cli-init-"));
     const outputPath = join(dir, "prompt-file.benchmark.json");
@@ -198,6 +237,41 @@ describe("CLI benchmark init template mode", () => {
 
     expect(exitCode).toBe(1);
     expect(output.stderr()).toMatch(/prompt/i);
+  });
+
+  test("rejects repo URL and repo path together", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "bmh-cli-init-"));
+    const output = createOutput();
+
+    const exitCode = await runCli(
+      [
+        "node",
+        "bench-my-harness",
+        "init",
+        "benchmark",
+        "--template",
+        "--id",
+        "bad-source-001",
+        "--name",
+        "Bad source",
+        "--category",
+        "feature",
+        "--repo-url",
+        "file:///workspace/app",
+        "--repo-path",
+        ".",
+        "--prompt",
+        "Do the work.",
+        "--test-command",
+        "npm test",
+        "--output",
+        join(dir, "bad-source.benchmark.json")
+      ],
+      { stdout: output.stdout, stderr: output.stderr }
+    );
+
+    expect(exitCode).toBe(1);
+    expect(output.stderr()).toMatch(/repo/i);
   });
 
   test("overwrites existing output only with force", async () => {

@@ -215,6 +215,19 @@ node ./dist/adapters/inbound/cli/main.js init benchmark --template \
   --output benchmarks/login-validation.benchmark.json
 ```
 
+For the repository you are currently in, use `--repo-path .`; BMH will store it as an absolute `file://` URL in the benchmark JSON:
+
+```bash
+node ./dist/adapters/inbound/cli/main.js init benchmark --template \
+  --id local-001 \
+  --name "Local benchmark" \
+  --category feature \
+  --repo-path . \
+  --prompt "Do the work." \
+  --test-command "npm test" \
+  --output benchmarks/local.benchmark.json
+```
+
 For larger prompts, reference a Markdown prompt file instead of inline text:
 
 ```bash

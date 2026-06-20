@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 import { readFile } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { dirname, isAbsolute, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
+import { pathToFileURL } from "node:url";
 import { Command, CommanderError } from "commander";
 import { z } from "zod";
 import { CreateBenchmarkTemplateUseCase } from "../../../application/use-cases/create-benchmark-template.js";
@@ -165,6 +166,7 @@ export function buildProgram(context: CliContext): Command {
     .option("--name <name>", "benchmark name")
     .option("--category <category>", "benchmark category")
     .option("--repo-url <url>", "source repository URL")
+    .option("--repo-path <path>", "local source repository path")
     .option("--fixture-path <path>", "fixture workspace path")
     .option("--commit <commit>", "repository commit")
     .option("--setup-command <command>", "setup command", collectOptionValue, [])
@@ -181,8 +183,8 @@ export function buildProgram(context: CliContext): Command {
     .action(async (options: InitBenchmarkOptions) => {
       const command =
         options.template || hasNonInteractiveAuthoringOptions(options)
-          ? commandFromTemplateOptions(options)
-          : await collectInteractiveBenchmarkCommand(context);
+          ? commandFromTemplateOptions(options, context.cwd)
+          : normalizeInteractiveCommand(await collectInteractiveBenchmarkCommand(context), context.cwd);
 
       const benchmark = new CreateBenchmarkTemplateUseCase().execute(command);
       const outputPath = resolvePath(context.cwd, options.output);
@@ -352,6 +354,7 @@ interface InitBenchmarkOptions {
   readonly name?: string;
   readonly category?: string;
   readonly repoUrl?: string;
+  readonly repoPath?: string;
   readonly fixturePath?: string;
   readonly commit?: string;
   readonly setupCommand?: readonly string[];
@@ -367,12 +370,19 @@ interface InitBenchmarkOptions {
   readonly force?: boolean;
 }
 
-function commandFromTemplateOptions(options: InitBenchmarkOptions): BenchmarkAuthoringCommand {
+function commandFromTemplateOptions(options: InitBenchmarkOptions, cwd: string): BenchmarkAuthoringCommand {
+  const sourceCount =
+    Number(options.repoUrl !== undefined) + Number(options.repoPath !== undefined) + Number(options.fixturePath !== undefined);
+
+  if (sourceCount > 1) {
+    throw new Error("init benchmark requires only one of --repo-url, --repo-path, or --fixture-path");
+  }
+
   return {
     id: requiredOption(options.id, "--id"),
     name: requiredOption(options.name, "--name"),
     category: requiredOption(options.category, "--category"),
-    repoUrl: options.repoUrl,
+    repoUrl: options.repoPath === undefined ? options.repoUrl : repoPathToFileUrl(cwd, options.repoPath),
     fixturePath: options.fixturePath,
     commit: options.commit,
     setupCommands: options.setupCommand ?? [],
@@ -394,6 +404,7 @@ function hasNonInteractiveAuthoringOptions(options: InitBenchmarkOptions): boole
     options.name !== undefined ||
     options.category !== undefined ||
     options.repoUrl !== undefined ||
+    options.repoPath !== undefined ||
     options.fixturePath !== undefined ||
     options.commit !== undefined ||
     hasEntries(options.setupCommand) ||
@@ -407,6 +418,25 @@ function hasNonInteractiveAuthoringOptions(options: InitBenchmarkOptions): boole
     hasEntries(options.forbiddenFileChanged) ||
     hasEntries(options.semanticRequirement)
   );
+}
+
+function normalizeInteractiveCommand(command: BenchmarkAuthoringCommand, cwd: string): BenchmarkAuthoringCommand {
+  if (command.repoUrl === undefined || !isLocalRepoPath(command.repoUrl)) {
+    return command;
+  }
+
+  return {
+    ...command,
+    repoUrl: repoPathToFileUrl(cwd, command.repoUrl)
+  };
+}
+
+function isLocalRepoPath(value: string): boolean {
+  return value === "." || value === ".." || value.startsWith("./") || value.startsWith("../") || isAbsolute(value);
+}
+
+function repoPathToFileUrl(cwd: string, path: string): string {
+  return pathToFileURL(resolvePath(cwd, path)).href;
 }
 
 function collectOptionValue(value: string, previous: readonly string[]): readonly string[] {

@@ -1,6 +1,7 @@
 import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { describe, expect, test } from "vitest";
 import { runCli } from "../../src/adapters/inbound/cli/main.js";
 import { BenchmarkSchema } from "../../src/domain/benchmark/benchmark-schema.js";
@@ -89,6 +90,42 @@ describe("CLI benchmark init interactive mode", () => {
       },
       prompt: {
         file: "task.spec.md"
+      }
+    });
+  });
+
+  test("interactive mode accepts current directory as repo path", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "bmh-cli-init-interactive-"));
+    const outputPath = join(dir, "interactive-repo-path.benchmark.json");
+
+    const exitCode = await runCli(["node", "bench-my-harness", "init", "benchmark", "--output", outputPath], {
+      stdin: interactiveAnswers([
+        "interactive-repo-path-001",
+        "Interactive repo path",
+        "feature",
+        "repo",
+        ".",
+        "",
+        "",
+        "npm test",
+        "text",
+        "Implement from current directory.",
+        "",
+        "900",
+        "",
+        "",
+        "",
+        ""
+      ]),
+      cwd: dir,
+      ...createOutput()
+    });
+
+    const generated = BenchmarkSchema.parse(JSON.parse(await readFile(outputPath, "utf8")));
+    expect(exitCode).toBe(0);
+    expect(generated).toMatchObject({
+      repo: {
+        url: pathToFileURL(resolve(dir, ".")).href
       }
     });
   });
