@@ -1,0 +1,4 @@
+interface:
+  display_name: "ADR Architecture Writer"
+  short_description: "Write architecture decision records."
+  default_prompt: "Use $adr-architecture-writer to write or update a Bench My Harness ADR with context, decision, and consequences."

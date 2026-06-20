@@ -1,0 +1,4 @@
+interface:
+  display_name: "Telemetry Event Analyst"
+  short_description: "Analyze benchmark telemetry and metrics."
+  default_prompt: "Use $telemetry-event-analyst to analyze Bench My Harness telemetry and explain harness performance tradeoffs."

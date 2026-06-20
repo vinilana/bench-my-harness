@@ -1,0 +1,4 @@
+interface:
+  display_name: "Benchmark Spec Author"
+  short_description: "Create reproducible benchmark scenarios."
+  default_prompt: "Use $benchmark-spec-author to define a reproducible Bench My Harness benchmark with expected outputs and evaluation criteria."

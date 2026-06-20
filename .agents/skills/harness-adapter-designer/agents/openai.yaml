@@ -1,0 +1,4 @@
+interface:
+  display_name: "Harness Adapter Designer"
+  short_description: "Design normalized adapters for agentic coding harness hooks."
+  default_prompt: "Use $harness-adapter-designer to design or review a Bench My Harness adapter for a coding agent hook source."
