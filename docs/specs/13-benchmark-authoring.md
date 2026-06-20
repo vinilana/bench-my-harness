@@ -33,6 +33,7 @@ Questions:
 - setup commands;
 - test commands;
 - prompt text;
+- prompt Markdown file, as an alternative to prompt text;
 - constraints;
 - timeout seconds;
 - max cost USD;
@@ -72,8 +73,11 @@ Rules:
   - `expected_output.tests_must_pass`: `true`
   - `evaluation.scoring.tests`: `1`
 - Supports `--fixture-path` as an alternative to `--repo-url`.
+- Supports `--prompt-file path/to/spec.md` as an alternative to `--prompt`.
 - Rejects commands that specify both `--repo-url` and `--fixture-path`.
+- Rejects commands that specify both `--prompt` and `--prompt-file`.
 - Rejects missing `--prompt`.
+- Rejects `--prompt-file` values that do not end in `.md`.
 - Output filename should conventionally end with `.benchmark.json`, but the command may write any `.json` path.
 
 ## Template JSON Shape
@@ -208,8 +212,9 @@ Add tests before implementation:
   - `init benchmark --template` writes a `.benchmark.json`;
   - generated file passes `validate benchmark`;
   - `--fixture-path` creates fixture benchmarks;
+  - `--prompt-file` writes `prompt.file`;
   - `--force` overwrites;
-  - missing prompt exits non-zero with a clear error.
+  - missing prompt or prompt file exits non-zero with a clear error.
 
 - `tests/acceptance/cli-init-benchmark-interactive.test.ts`
   - `init benchmark` without `--template` enters interactive mode by default;

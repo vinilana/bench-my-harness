@@ -57,6 +57,22 @@ Um benchmark representa uma tarefa reproduzivel contra um estado inicial de repo
 }
 ```
 
+Benchmarks may alternatively use a Markdown prompt/spec file:
+
+```json
+{
+  "prompt": {
+    "file": "fix-login-validation.spec.md",
+    "constraints": [
+      "Nao alterar o schema do banco",
+      "Manter compatibilidade com testes existentes"
+    ]
+  }
+}
+```
+
+Exactly one of `prompt.text` or `prompt.file` must be present. `prompt.file` must point to a relative `.md` file. See `docs/specs/14-benchmark-prompt-file.md`.
+
 ## Entidades
 
 - `BenchmarkSuite`: colecao de cenarios.
