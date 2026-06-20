@@ -38,6 +38,11 @@ export interface NormalizedHookEvent {
     timestamp: "native" | "observed";
     ordering: "best_effort";
     payload_completeness: "full";
+    session: "native" | "unavailable";
+    turn: "native" | "unavailable";
+    tool_call: "native" | "unavailable";
+    usage: "unavailable";
+    context: "native" | "unavailable";
   };
   security: {
     redaction_applied: boolean;
@@ -51,6 +56,7 @@ export function normalizeRawHookEvent(raw: RawHookEvent): NormalizedHookEvent {
   const sessionId = readString(payload, "session_id");
   const turnId = readString(payload, "turn_id");
   const toolName = readString(payload, "tool_name");
+  const toolUseId = readString(payload, "tool_use_id");
   const occurredAt = readString(payload, "timestamp") ?? raw.observed_at;
 
   return {
@@ -77,8 +83,8 @@ export function normalizeRawHookEvent(raw: RawHookEvent): NormalizedHookEvent {
       name: raw.provider
     },
     action: omitUndefined({
-      name: toolName,
-      category: toolName === undefined ? undefined : "tool",
+      name: toActionName(providerEventType, toolName),
+      category: toActionCategory(providerEventType, toolName),
       status: toActionStatus(providerEventType, payload)
     }),
     payload: raw.payload,
@@ -90,7 +96,12 @@ export function normalizeRawHookEvent(raw: RawHookEvent): NormalizedHookEvent {
       identity: "derived",
       timestamp: occurredAt === raw.observed_at ? "observed" : "native",
       ordering: "best_effort",
-      payload_completeness: "full"
+      payload_completeness: "full",
+      session: sessionId === undefined ? "unavailable" : "native",
+      turn: turnId === undefined ? "unavailable" : "native",
+      tool_call: toolUseId === undefined ? "unavailable" : "native",
+      usage: "unavailable",
+      context: isCompactEvent(providerEventType) ? "native" : "unavailable"
     },
     security: {
       redaction_applied: false,
@@ -101,15 +112,24 @@ export function normalizeRawHookEvent(raw: RawHookEvent): NormalizedHookEvent {
 
 function toCanonicalEventType(providerEventType: string, payload: Record<string, JsonValue>): string {
   switch (providerEventType) {
+    case "SessionStart":
+      return "session.started";
     case "UserPromptSubmit":
       return "message.input";
     case "PreToolUse":
       return "tool.requested";
     case "PostToolUse":
       return postToolUseSucceeded(payload) ? "tool.completed" : "tool.failed";
+    case "PostToolUseFailure":
+      return "tool.failed";
     case "PermissionRequest":
       return "approval.requested";
+    case "PreCompact":
+    case "PostCompact":
+      return "context.compacted";
     case "Stop":
+      return "turn.ended";
+    case "SessionEnd":
       return "session.ended";
     default:
       return "notification.emitted";
@@ -118,15 +138,46 @@ function toCanonicalEventType(providerEventType: string, payload: Record<string,
 
 function toActionStatus(providerEventType: string, payload: Record<string, JsonValue>): string {
   switch (providerEventType) {
+    case "SessionStart":
+    case "PreCompact":
+      return "started";
+    case "UserPromptSubmit":
+      return "submitted";
     case "PreToolUse":
     case "PermissionRequest":
       return "requested";
     case "PostToolUse":
       return postToolUseSucceeded(payload) ? "completed" : "failed";
+    case "PostToolUseFailure":
+      return "failed";
+    case "PostCompact":
     case "Stop":
+    case "SessionEnd":
       return "completed";
     default:
       return "observed";
+  }
+}
+
+function toActionName(providerEventType: string, toolName: string | undefined): string | undefined {
+  if (providerEventType === "PostToolBatch") {
+    return providerEventType;
+  }
+
+  return toolName;
+}
+
+function toActionCategory(providerEventType: string, toolName: string | undefined): string | undefined {
+  switch (providerEventType) {
+    case "PermissionRequest":
+      return "approval";
+    case "PreCompact":
+    case "PostCompact":
+      return "context";
+    case "PostToolBatch":
+      return "tool_batch";
+    default:
+      return toolName === undefined ? undefined : "tool";
   }
 }
 
@@ -142,6 +193,10 @@ function postToolUseSucceeded(payload: Record<string, JsonValue>): boolean {
   }
 
   return true;
+}
+
+function isCompactEvent(providerEventType: string): boolean {
+  return providerEventType === "PreCompact" || providerEventType === "PostCompact";
 }
 
 function asJsonObject(value: JsonValue): Record<string, JsonValue>;

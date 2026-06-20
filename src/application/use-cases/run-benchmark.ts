@@ -1,8 +1,7 @@
-import { mkdir } from "node:fs/promises";
-import { join } from "node:path";
 import type { ArtifactCollectorPort } from "../ports/artifact-collector-port.js";
 import type { HookInstallation, InstallHarnessHooksPort } from "../ports/install-harness-hooks-port.js";
 import type { HarnessName, HarnessRunnerPort } from "../ports/harness-runner-port.js";
+import type { WorkspaceProvisionerPort } from "../ports/workspace-provisioner-port.js";
 
 interface BenchmarkPrompt {
   text: string;
@@ -40,19 +39,43 @@ export interface RunTrialResult {
   workspace: string;
 }
 
+export interface RunBenchmarkInput {
+  benchmark: BenchmarkDefinition;
+  harnesses: readonly HarnessName[];
+  trials: number;
+  runId: string;
+  workspaceRoot: string;
+  strictTelemetry?: boolean;
+}
+
+export interface RunBenchmarkTrialResult extends RunTrialResult {
+  harness: HarnessName;
+  trialId: string;
+  trialNumber: number;
+}
+
+export interface RunBenchmarkResult {
+  runId: string;
+  benchmarkId: string;
+  benchmarkVersion: string;
+  trials: RunBenchmarkTrialResult[];
+}
+
 export class BenchmarkRunner {
   public constructor(
     private readonly ports: {
       hookInstaller: InstallHarnessHooksPort;
       harnessRunner: HarnessRunnerPort;
       artifactCollector: ArtifactCollectorPort;
+      workspaceProvisioner: WorkspaceProvisionerPort;
     }
   ) {}
 
   public async runTrial(input: RunTrialInput): Promise<RunTrialResult> {
-    const workspace = join(input.workspaceRoot, input.trialId);
-    const spoolPath = join(workspace, ".bmh", "hooks.jsonl");
-    await mkdir(join(workspace, ".bmh"), { recursive: true });
+    const { workspace, spoolPath } = await this.ports.workspaceProvisioner.provision({
+      workspaceRoot: input.workspaceRoot,
+      trialId: input.trialId
+    });
 
     let installation: HookInstallation | undefined;
     let result: RunTrialResult;
@@ -118,5 +141,47 @@ export class BenchmarkRunner {
     }
 
     return result;
+  }
+
+  public async runBenchmark(input: RunBenchmarkInput): Promise<RunBenchmarkResult> {
+    const trials: RunBenchmarkTrialResult[] = [];
+
+    for (const harness of input.harnesses) {
+      const trialCount = this.trialCountFor(input.trials, harness);
+
+      for (let trialNumber = 1; trialNumber <= trialCount; trialNumber += 1) {
+        const trialId = `${harness}_trial_${trialNumber}`;
+        const result = await this.runTrial({
+          benchmark: input.benchmark,
+          harness,
+          runId: input.runId,
+          trialId,
+          workspaceRoot: input.workspaceRoot,
+          strictTelemetry: input.strictTelemetry
+        });
+
+        trials.push({
+          harness,
+          trialId,
+          trialNumber,
+          ...result
+        });
+      }
+    }
+
+    return {
+      runId: input.runId,
+      benchmarkId: input.benchmark.id,
+      benchmarkVersion: input.benchmark.version,
+      trials
+    };
+  }
+
+  private trialCountFor(trials: number, harness: HarnessName): number {
+    if (!Number.isInteger(trials) || trials < 0) {
+      throw new Error(`invalid trial count for ${harness}: ${trials}`);
+    }
+
+    return trials;
   }
 }

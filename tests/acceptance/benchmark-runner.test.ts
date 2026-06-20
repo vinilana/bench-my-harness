@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 import { mkdtemp } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { FilesystemWorkspaceProvisioner } from "../../src/adapters/outbound/filesystem/filesystem-workspace-provisioner.js";
 import { BenchmarkRunner } from "../../src/application/use-cases/run-benchmark.js";
 import { FakeHarnessRunner } from "../support/fakes/fake-harness-runner.js";
 import { FakeHookInstaller } from "../support/fakes/fake-hook-installer.js";
@@ -14,7 +15,12 @@ describe("benchmark runner", () => {
     const hookInstaller = new FakeHookInstaller();
     const harnessRunner = new FakeHarnessRunner({ exitCode: 0 });
     const artifactCollector = new FakeArtifactCollector();
-    const runner = new BenchmarkRunner({ hookInstaller, harnessRunner, artifactCollector });
+    const runner = new BenchmarkRunner({
+      hookInstaller,
+      harnessRunner,
+      artifactCollector,
+      workspaceProvisioner: new FilesystemWorkspaceProvisioner()
+    });
 
     const result = await runner.runTrial({
       benchmark,
@@ -36,7 +42,12 @@ describe("benchmark runner", () => {
     const hookInstaller = new FakeHookInstaller();
     const harnessRunner = new FakeHarnessRunner({ exitCode: 1 });
     const artifactCollector = new FakeArtifactCollector();
-    const runner = new BenchmarkRunner({ hookInstaller, harnessRunner, artifactCollector });
+    const runner = new BenchmarkRunner({
+      hookInstaller,
+      harnessRunner,
+      artifactCollector,
+      workspaceProvisioner: new FilesystemWorkspaceProvisioner()
+    });
 
     const result = await runner.runTrial({
       benchmark,

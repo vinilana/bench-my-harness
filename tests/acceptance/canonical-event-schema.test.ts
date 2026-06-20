@@ -65,6 +65,85 @@ describe("canonical event schema", () => {
     ).toThrow();
   });
 
+  test.each([
+    "instrumentation.installed",
+    "instrumentation.failed",
+    "instrumentation.uninstalled",
+    "instrumentation.partial",
+    "usage_capture.started",
+    "usage_capture.completed",
+    "usage_capture.unavailable"
+  ] as const)("accepts %s with explicit system source evidence", (eventType) => {
+    const event = NormalizedEventSchema.parse({
+      schema_version: "bmh.event.v1",
+      event_id: `evt_${eventType.replaceAll(".", "_")}`,
+      idempotency_key: `codex:run_1:trial_1:${eventType}`,
+      provider: "codex",
+      provider_event_type: eventType,
+      event_type: eventType,
+      occurred_at: "2026-06-20T12:00:00.000Z",
+      observed_at: "2026-06-20T12:00:00.000Z",
+      source: {
+        transport: "system",
+        adapter_version: "bench-my-harness@0.1.0",
+        evidence: {
+          kind: "system_record",
+          reference: `run_1/trial_1/${eventType}`
+        }
+      },
+      run: {
+        run_id: "run_1",
+        trial_id: "trial_1"
+      },
+      action: {
+        category: eventType.startsWith("usage_capture.") ? "usage_capture" : "instrumentation",
+        status: eventType.split(".")[1]
+      },
+      payload: {},
+      quality: {
+        identity: "derived",
+        timestamp: "observed",
+        ordering: "observed",
+        payload_completeness: "full"
+      },
+      security: {
+        redaction_applied: false,
+        secret_scan_status: "unknown"
+      }
+    });
+
+    expect(event.event_type).toBe(eventType);
+    expect(event.raw_ref).toBeUndefined();
+    expect(event.source.evidence?.reference).toContain(eventType);
+  });
+
+  test("rejects normalized events without raw_ref or system source evidence", () => {
+    expect(() =>
+      NormalizedEventSchema.parse({
+        schema_version: "bmh.event.v1",
+        event_id: "evt_instrumentation",
+        idempotency_key: "codex:run_1:trial_1:instrumentation.installed",
+        provider: "codex",
+        provider_event_type: "instrumentation.installed",
+        event_type: "instrumentation.installed",
+        occurred_at: "2026-06-20T12:00:00.000Z",
+        observed_at: "2026-06-20T12:00:00.000Z",
+        source: {
+          transport: "system"
+        },
+        run: {
+          run_id: "run_1",
+          trial_id: "trial_1"
+        },
+        action: {
+          status: "installed"
+        },
+        payload: {},
+        quality: {}
+      })
+    ).toThrow();
+  });
+
   test("requires metric observations to declare source and confidence", () => {
     const metric = MetricObservationSchema.parse({
       metric: "input_tokens",

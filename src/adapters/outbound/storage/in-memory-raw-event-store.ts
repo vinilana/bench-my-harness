@@ -1,6 +1,12 @@
 import { createHash } from "node:crypto";
 
-import type { AppendRawHookEventInput, JsonValue, RawEventStore, RawHookEvent } from "../../../application/ports/raw-event-store.js";
+import type {
+  AppendRawHookEventInput,
+  JsonValue,
+  RawEventListFilter,
+  RawEventStore,
+  RawHookEvent
+} from "../../../application/ports/raw-event-store.js";
 
 export class InMemoryRawEventStore implements RawEventStore {
   private readonly recordsById = new Map<string, RawHookEvent>();
@@ -48,6 +54,12 @@ export class InMemoryRawEventStore implements RawEventStore {
     const raw = this.recordsById.get(rawEventId);
     return raw === undefined ? undefined : cloneRawHookEvent(raw);
   }
+
+  async list(filter: RawEventListFilter = {}): Promise<RawHookEvent[]> {
+    return Array.from(this.recordsById.values())
+      .filter((raw) => matchesRawFilter(raw, filter))
+      .map((raw) => cloneRawHookEvent(raw));
+  }
 }
 
 export function hashPayload(payload: JsonValue): string {
@@ -78,4 +90,12 @@ function cloneRawHookEvent(raw: RawHookEvent): RawHookEvent {
 
 function cloneJson<T extends JsonValue>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
+}
+
+function matchesRawFilter(raw: RawHookEvent, filter: RawEventListFilter): boolean {
+  return (
+    (filter.provider === undefined || raw.provider === filter.provider) &&
+    (filter.run_id === undefined || raw.run_id === filter.run_id) &&
+    (filter.trial_id === undefined || raw.trial_id === filter.trial_id)
+  );
 }

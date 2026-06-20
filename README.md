@@ -147,7 +147,7 @@ docs/
   prompts/
 ```
 
-## Planned Commands
+## Commands
 
 ```bash
 npm test
@@ -157,14 +157,17 @@ npm run lint
 npm run build
 ```
 
-Future CLI:
+Current CLI surface:
 
 ```bash
-bench-my-harness run --benchmark benchmark.yml --harness codex
-bench-my-harness run --benchmark benchmark.yml --harness claude_code
 bench-my-harness hook-capture --provider codex --event PreToolUse
-bench-my-harness report --run-id run_123
+bench-my-harness validate benchmark benchmark.json
+bench-my-harness run --benchmark benchmark.json --harness codex --dry-run
+bench-my-harness run --benchmark benchmark.json --harness claude_code --harness-command-json '{"executable":"node","args":["fake-harness.mjs"]}'
+bench-my-harness report --input report.json
 ```
+
+The v1 CLI currently accepts JSON benchmark files. YAML fixtures are documented in the roadmap as a future format and are rejected explicitly by the current CLI.
 
 ## Acceptance Gates
 

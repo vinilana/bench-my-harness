@@ -25,7 +25,14 @@ export const CanonicalEventTypeSchema = z.enum([
   "notification.emitted",
   "metric.recorded",
   "artifact.created",
-  "error.raised"
+  "error.raised",
+  "instrumentation.installed",
+  "instrumentation.failed",
+  "instrumentation.uninstalled",
+  "instrumentation.partial",
+  "usage_capture.started",
+  "usage_capture.completed",
+  "usage_capture.unavailable"
 ]);
 export type CanonicalEventType = z.infer<typeof CanonicalEventTypeSchema>;
 
@@ -58,7 +65,11 @@ export const NormalizedEventSchema = z.object({
     transport: NonEmptyStringSchema,
     adapter_version: NonEmptyStringSchema.optional(),
     host: NonEmptyStringSchema.optional(),
-    process_id: z.number().int().nonnegative().optional()
+    process_id: z.number().int().nonnegative().optional(),
+    evidence: z.object({
+      kind: NonEmptyStringSchema,
+      reference: NonEmptyStringSchema
+    }).optional()
   }),
   workspace: z.object({
     id: NonEmptyStringSchema.optional(),
@@ -88,17 +99,36 @@ export const NormalizedEventSchema = z.object({
   raw_ref: z.object({
     raw_event_id: NonEmptyStringSchema,
     payload_hash: NonEmptyStringSchema
-  }),
+  }).optional(),
   quality: z.object({
     identity: DataQualitySourceSchema.optional(),
     timestamp: DataQualitySourceSchema.optional(),
     ordering: DataQualitySourceSchema.optional(),
-    payload_completeness: DataQualitySourceSchema.optional()
+    payload_completeness: DataQualitySourceSchema.optional(),
+    session: DataQualitySourceSchema.optional(),
+    turn: DataQualitySourceSchema.optional(),
+    tool_call: DataQualitySourceSchema.optional(),
+    usage: DataQualitySourceSchema.optional(),
+    context: DataQualitySourceSchema.optional()
   }),
   security: z.object({
     redaction_applied: z.boolean().optional(),
     secret_scan_status: NonEmptyStringSchema.optional()
   }).optional()
+}).superRefine((event, context) => {
+  if (event.raw_ref !== undefined) {
+    return;
+  }
+
+  if (event.source.transport === "system" && event.source.evidence !== undefined) {
+    return;
+  }
+
+  context.addIssue({
+    code: "custom",
+    path: ["raw_ref"],
+    message: "normalized events require raw_ref or explicit system source evidence"
+  });
 });
 
 export type NormalizedEvent = z.infer<typeof NormalizedEventSchema>;

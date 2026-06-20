@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { FilesystemArtifactReader } from "../../src/adapters/outbound/filesystem/filesystem-artifact-reader.js";
 import { collectTrialArtifacts } from "../../src/application/use-cases/collect-trial-artifacts.js";
 
 describe("artifact collection", () => {
@@ -14,14 +15,17 @@ describe("artifact collection", () => {
     await writeFile(diff, "diff --git a/a b/a\n");
     await writeFile(testOutput, "PASS\n");
 
-    const artifacts = await collectTrialArtifacts({
-      runId: "run_1",
-      trialId: "trial_1",
-      workspace,
-      transcriptPath: transcript,
-      diffPath: diff,
-      testOutputPath: testOutput
-    });
+    const artifacts = await collectTrialArtifacts(
+      {
+        runId: "run_1",
+        trialId: "trial_1",
+        workspace,
+        transcriptPath: transcript,
+        diffPath: diff,
+        testOutputPath: testOutput
+      },
+      { artifactReader: new FilesystemArtifactReader() }
+    );
 
     expect(artifacts).toEqual(
       expect.arrayContaining([
@@ -36,12 +40,15 @@ describe("artifact collection", () => {
     const workspace = await mkdtemp(join(tmpdir(), "bmh-artifacts-"));
 
     await expect(
-      collectTrialArtifacts({
-        runId: "run_1",
-        trialId: "trial_1",
-        workspace,
-        transcriptPath: "/etc/passwd"
-      })
+      collectTrialArtifacts(
+        {
+          runId: "run_1",
+          trialId: "trial_1",
+          workspace,
+          transcriptPath: "/etc/passwd"
+        },
+        { artifactReader: new FilesystemArtifactReader() }
+      )
     ).rejects.toThrow(/outside workspace|path traversal/i);
   });
 });

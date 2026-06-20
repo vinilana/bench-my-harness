@@ -1,7 +1,6 @@
 import { createHash } from "node:crypto";
-import { readFile, stat } from "node:fs/promises";
-import { isAbsolute, relative, resolve, sep } from "node:path";
 import type { ArtifactKind, TrialArtifact } from "../../domain/artifacts/artifact.js";
+import type { ArtifactReaderPort } from "../ports/artifact-reader-port.js";
 
 export interface CollectTrialArtifactsInput {
   runId: string;
@@ -17,7 +16,14 @@ interface ArtifactCandidate {
   path: string | undefined;
 }
 
-export async function collectTrialArtifacts(input: CollectTrialArtifactsInput): Promise<TrialArtifact[]> {
+export interface CollectTrialArtifactsPorts {
+  artifactReader: ArtifactReaderPort;
+}
+
+export async function collectTrialArtifacts(
+  input: CollectTrialArtifactsInput,
+  ports: CollectTrialArtifactsPorts
+): Promise<TrialArtifact[]> {
   const candidates: ArtifactCandidate[] = [
     { kind: "transcript", path: input.transcriptPath },
     { kind: "diff", path: input.diffPath },
@@ -31,30 +37,20 @@ export async function collectTrialArtifacts(input: CollectTrialArtifactsInput): 
       continue;
     }
 
-    const artifactPath = assertInsideWorkspace(input.workspace, candidate.path);
-    const [content, fileStat] = await Promise.all([readFile(artifactPath), stat(artifactPath)]);
+    const artifact = await ports.artifactReader.read({
+      workspace: input.workspace,
+      path: candidate.path
+    });
 
     artifacts.push({
       run_id: input.runId,
       trial_id: input.trialId,
       kind: candidate.kind,
-      path: artifactPath,
-      content_hash: `sha256:${createHash("sha256").update(content).digest("hex")}`,
-      size_bytes: fileStat.size
+      path: artifact.path,
+      content_hash: `sha256:${createHash("sha256").update(artifact.content).digest("hex")}`,
+      size_bytes: artifact.sizeBytes
     });
   }
 
   return artifacts;
-}
-
-function assertInsideWorkspace(workspace: string, candidatePath: string): string {
-  const workspacePath = resolve(workspace);
-  const artifactPath = isAbsolute(candidatePath) ? resolve(candidatePath) : resolve(workspacePath, candidatePath);
-  const relativePath = relative(workspacePath, artifactPath);
-
-  if (relativePath === "" || relativePath === ".." || relativePath.startsWith(`..${sep}`) || isAbsolute(relativePath)) {
-    throw new Error(`Artifact path is outside workspace: ${candidatePath}`);
-  }
-
-  return artifactPath;
 }

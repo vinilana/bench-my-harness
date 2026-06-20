@@ -1,0 +1,8 @@
+{
+  "session_id": "codex-session-1",
+  "transcript_path": "/tmp/bmh/codex-session.jsonl",
+  "cwd": "/tmp/bmh/workspace",
+  "hook_event_name": "PreCompact",
+  "turn_id": "turn-1",
+  "trigger": "manual"
+}

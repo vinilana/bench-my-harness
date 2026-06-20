@@ -10,7 +10,7 @@
     "node": ">=22"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "find src -name '*.ts' -print0 | xargs -0 tsc --target ES2022 --module NodeNext --moduleResolution NodeNext --strict --esModuleInterop --forceConsistentCasingInFileNames --skipLibCheck --outDir dist --rootDir src --types node",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
