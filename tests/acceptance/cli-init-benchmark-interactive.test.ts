@@ -93,6 +93,56 @@ describe("CLI benchmark init interactive mode", () => {
     });
   });
 
+  test("interactive mode asks questions when stdin is absent", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "bmh-cli-init-interactive-"));
+    const outputPath = join(dir, "question-provider.benchmark.json");
+    const output = createOutput();
+    const labels: string[] = [];
+    const answers = [
+      "question-provider-001",
+      "Question provider benchmark",
+      "feature",
+      "repo",
+      "file:///workspace/app",
+      "abc123",
+      "",
+      "npm test",
+      "text",
+      "Implement from question provider.",
+      "",
+      "900",
+      "",
+      "",
+      "",
+      ""
+    ];
+
+    const exitCode = await runCli(["node", "bench-my-harness", "init", "benchmark", "--output", outputPath], {
+      stdout: output.stdout,
+      stderr: output.stderr,
+      question: (label: string) => {
+        labels.push(label);
+        const answer = answers.shift();
+
+        if (answer === undefined) {
+          throw new Error(`missing answer for ${label}`);
+        }
+
+        return answer;
+      }
+    });
+
+    const generated = BenchmarkSchema.parse(JSON.parse(await readFile(outputPath, "utf8")));
+    expect(exitCode).toBe(0);
+    expect(labels[0]).toBe("Benchmark id");
+    expect(generated).toMatchObject({
+      id: "question-provider-001",
+      prompt: {
+        text: "Implement from question provider."
+      }
+    });
+  });
+
   test("interactive EOF returns a clear non-zero exit", async () => {
     const dir = await mkdtemp(join(tmpdir(), "bmh-cli-init-interactive-"));
     const output = createOutput();

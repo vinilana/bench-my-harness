@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
+import { createInterface } from "node:readline/promises";
 import { Command, CommanderError } from "commander";
 import { z } from "zod";
 import { CreateBenchmarkTemplateUseCase } from "../../../application/use-cases/create-benchmark-template.js";
@@ -34,6 +35,7 @@ export interface CliRuntime {
   readonly stderr?: (chunk: string) => void;
   readonly cwd?: string;
   readonly env?: NodeJS.ProcessEnv;
+  readonly question?: (label: string) => string | Promise<string>;
 }
 
 interface CliContext {
@@ -42,6 +44,8 @@ interface CliContext {
   readonly stderr: (chunk: string) => void;
   readonly cwd: string;
   readonly env: NodeJS.ProcessEnv;
+  readonly question?: (label: string) => string | Promise<string>;
+  readonly canPromptInteractively: boolean;
 }
 
 class CliExit extends Error {
@@ -65,7 +69,14 @@ export async function runCli(argv = process.argv, runtime: CliRuntime = {}): Pro
     stdout: runtime.stdout ?? ((chunk) => process.stdout.write(chunk)),
     stderr: runtime.stderr ?? ((chunk) => process.stderr.write(chunk)),
     cwd: runtime.cwd ?? process.cwd(),
-    env: runtime.env ?? process.env
+    env: runtime.env ?? process.env,
+    question: runtime.question,
+    canPromptInteractively:
+      runtime.stdin === undefined &&
+      runtime.stdout === undefined &&
+      runtime.question === undefined &&
+      process.stdin.isTTY === true &&
+      process.stdout.isTTY === true
   };
   const program = buildProgram(context);
 
@@ -171,10 +182,7 @@ export function buildProgram(context: CliContext): Command {
       const command =
         options.template || hasNonInteractiveAuthoringOptions(options)
           ? commandFromTemplateOptions(options)
-          : new InteractiveBenchmarkAuthoring({
-              stdin: context.stdin,
-              stdout: context.stdout
-            }).collect();
+          : await collectInteractiveBenchmarkCommand(context);
 
       const benchmark = new CreateBenchmarkTemplateUseCase().execute(command);
       const outputPath = resolvePath(context.cwd, options.output);
@@ -415,6 +423,34 @@ function requiredOption(value: string | undefined, option: string): string {
 
 function hasEntries(values: readonly unknown[] | undefined): boolean {
   return values !== undefined && values.length > 0;
+}
+
+async function collectInteractiveBenchmarkCommand(context: CliContext): Promise<BenchmarkAuthoringCommand> {
+  if (context.question) {
+    return new InteractiveBenchmarkAuthoring({
+      question: context.question
+    }).collect();
+  }
+
+  if (context.canPromptInteractively) {
+    const readline = createInterface({
+      input: process.stdin,
+      output: process.stdout
+    });
+
+    try {
+      return await new InteractiveBenchmarkAuthoring({
+        question: (label) => readline.question(`${label}: `)
+      }).collect();
+    } finally {
+      readline.close();
+    }
+  }
+
+  return new InteractiveBenchmarkAuthoring({
+    stdin: context.stdin,
+    stdout: context.stdout
+  }).collect();
 }
 
 async function readBenchmarkFile(path: string, cwd: string): Promise<{ benchmark: Benchmark; directory: string }> {

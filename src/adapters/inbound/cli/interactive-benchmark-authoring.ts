@@ -18,8 +18,9 @@ export interface BenchmarkAuthoringCommand {
 }
 
 export interface InteractiveBenchmarkAuthoringOptions {
-  readonly stdin: string;
-  readonly stdout: (chunk: string) => void;
+  readonly stdin?: string;
+  readonly stdout?: (chunk: string) => void;
+  readonly question?: (label: string) => string | Promise<string>;
 }
 
 export class InteractiveBenchmarkAuthoring {
@@ -27,7 +28,7 @@ export class InteractiveBenchmarkAuthoring {
   private index = 0;
 
   public constructor(private readonly options: InteractiveBenchmarkAuthoringOptions) {
-    const normalized = options.stdin.replace(/\r\n/g, "\n");
+    const normalized = (options.stdin ?? "").replace(/\r\n/g, "\n");
     this.answers = normalized.split("\n");
 
     if (this.answers.at(-1) === "") {
@@ -35,11 +36,11 @@ export class InteractiveBenchmarkAuthoring {
     }
   }
 
-  public collect(): BenchmarkAuthoringCommand {
-    const id = this.required("Benchmark id");
-    const name = this.required("Name");
-    const category = this.required("Category");
-    const source = this.required("Source (repo or fixture)").toLowerCase();
+  public async collect(): Promise<BenchmarkAuthoringCommand> {
+    const id = await this.required("Benchmark id");
+    const name = await this.required("Name");
+    const category = await this.required("Category");
+    const source = (await this.required("Source (repo or fixture)")).toLowerCase();
 
     let repoUrl: string | undefined;
     let fixturePath: string | undefined;
@@ -48,36 +49,36 @@ export class InteractiveBenchmarkAuthoring {
     let testCommands: readonly string[];
 
     if (source === "repo") {
-      repoUrl = this.required("Repo URL");
-      commit = optional(this.ask("Commit"));
-      setupCommands = parseList(this.ask("Setup commands"));
-      testCommands = parseList(this.ask("Test commands"));
+      repoUrl = await this.required("Repo URL");
+      commit = optional(await this.ask("Commit"));
+      setupCommands = parseList(await this.ask("Setup commands"));
+      testCommands = parseList(await this.ask("Test commands"));
     } else if (source === "fixture") {
-      fixturePath = this.required("Fixture path");
-      setupCommands = parseList(this.ask("Setup commands"));
-      testCommands = parseList(this.ask("Test commands"));
+      fixturePath = await this.required("Fixture path");
+      setupCommands = parseList(await this.ask("Setup commands"));
+      testCommands = parseList(await this.ask("Test commands"));
     } else {
       throw new Error("source must be repo or fixture");
     }
 
-    const promptSource = this.required("Prompt source (text or file)").toLowerCase();
+    const promptSource = (await this.required("Prompt source (text or file)")).toLowerCase();
     let promptText: string | undefined;
     let promptFile: string | undefined;
 
     if (promptSource === "text") {
-      promptText = this.required("Prompt text");
+      promptText = await this.required("Prompt text");
     } else if (promptSource === "file") {
-      promptFile = this.required("Prompt Markdown file");
+      promptFile = await this.required("Prompt Markdown file");
     } else {
       throw new Error("prompt source must be text or file");
     }
 
-    const constraints = parseList(this.ask("Constraints"));
-    const timeoutSeconds = parseOptionalPositiveNumber(this.ask("Timeout seconds"), "timeout seconds");
-    const maxCostUsd = parseOptionalNonnegativeNumber(this.ask("Max cost USD"), "max cost USD");
-    const requiredFilesChanged = parseList(this.ask("Required files changed"));
-    const forbiddenFilesChanged = parseList(this.ask("Forbidden files changed"));
-    const semanticRequirements = parseList(this.ask("Semantic requirements"));
+    const constraints = parseList(await this.ask("Constraints"));
+    const timeoutSeconds = parseOptionalPositiveNumber(await this.ask("Timeout seconds"), "timeout seconds");
+    const maxCostUsd = parseOptionalNonnegativeNumber(await this.ask("Max cost USD"), "max cost USD");
+    const requiredFilesChanged = parseList(await this.ask("Required files changed"));
+    const forbiddenFilesChanged = parseList(await this.ask("Forbidden files changed"));
+    const semanticRequirements = parseList(await this.ask("Semantic requirements"));
 
     return {
       id,
@@ -99,8 +100,8 @@ export class InteractiveBenchmarkAuthoring {
     };
   }
 
-  private required(label: string): string {
-    const value = optional(this.ask(label));
+  private async required(label: string): Promise<string> {
+    const value = optional(await this.ask(label));
 
     if (value === undefined) {
       throw new Error(`${label} is required`);
@@ -109,8 +110,12 @@ export class InteractiveBenchmarkAuthoring {
     return value;
   }
 
-  private ask(label: string): string {
-    this.options.stdout(`${label}: `);
+  private async ask(label: string): Promise<string> {
+    if (this.options.question) {
+      return this.options.question(label);
+    }
+
+    this.options.stdout?.(`${label}: `);
 
     if (this.index >= this.answers.length) {
       throw new Error("interactive input ended before all answers were provided");
