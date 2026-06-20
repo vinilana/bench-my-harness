@@ -6,48 +6,22 @@ Users need an easy and repeatable way to create a valid `.benchmark.json` file w
 
 ## Decision
 
-Implement benchmark authoring in two compatible steps:
+Implement benchmark authoring in two compatible modes:
 
-1. Template generation: a non-interactive CLI command that writes a valid benchmark JSON file from conservative defaults.
-2. Interactive authoring: a guided CLI flow that asks for the same fields and writes the same JSON contract.
+1. Interactive authoring: the default `bench-my-harness init benchmark` behavior. It asks guided questions and writes the JSON contract.
+2. Template generation: an explicit non-interactive mode that writes a valid benchmark JSON file from flags and conservative defaults.
 
 Both flows must produce output accepted by `BenchmarkSchema` and by `bench-my-harness validate benchmark`.
 
 ## CLI Surface
 
-### Template Mode
+### Default Interactive Mode
 
 ```bash
-bench-my-harness init benchmark \
-  --id login-validation-001 \
-  --name "Login validation" \
-  --category bugfix \
-  --repo-url file:///workspace/app \
-  --commit abc123 \
-  --prompt "Add input validation to the login form." \
-  --test-command "npm test" \
-  --output login-validation.benchmark.json
+bench-my-harness init benchmark --output login-validation.benchmark.json
 ```
 
-Rules:
-
-- Writes JSON only in v1.
-- Fails if output exists unless `--force` is passed.
-- Defaults:
-  - `version`: `1.0.0`
-  - `limits.timeout_seconds`: `900`
-  - `expected_output.tests_must_pass`: `true`
-  - `evaluation.scoring.tests`: `1`
-- Supports `--fixture-path` as an alternative to `--repo-url`.
-- Rejects commands that specify both `--repo-url` and `--fixture-path`.
-- Rejects missing `--prompt`.
-- Output filename should conventionally end with `.benchmark.json`, but the command may write any `.json` path.
-
-### Interactive Mode
-
-```bash
-bench-my-harness init benchmark --interactive --output login-validation.benchmark.json
-```
+`init benchmark` defaults to interactive mode unless a non-interactive flag is provided.
 
 Questions:
 
@@ -72,6 +46,35 @@ Rules:
 - The application use case receives a complete command object; it must not read from the terminal.
 - Empty optional answers are omitted from the JSON.
 - The generated object is validated before writing.
+
+### Explicit Template Mode
+
+```bash
+bench-my-harness init benchmark --template \
+  --id login-validation-001 \
+  --name "Login validation" \
+  --category bugfix \
+  --repo-url file:///workspace/app \
+  --commit abc123 \
+  --prompt "Add input validation to the login form." \
+  --test-command "npm test" \
+  --output login-validation.benchmark.json
+```
+
+Rules:
+
+- Writes JSON only in v1.
+- Template mode is selected by `--template` or by passing enough explicit non-interactive authoring flags.
+- Fails if output exists unless `--force` is passed.
+- Defaults:
+  - `version`: `1.0.0`
+  - `limits.timeout_seconds`: `900`
+  - `expected_output.tests_must_pass`: `true`
+  - `evaluation.scoring.tests`: `1`
+- Supports `--fixture-path` as an alternative to `--repo-url`.
+- Rejects commands that specify both `--repo-url` and `--fixture-path`.
+- Rejects missing `--prompt`.
+- Output filename should conventionally end with `.benchmark.json`, but the command may write any `.json` path.
 
 ## Template JSON Shape
 
@@ -202,25 +205,27 @@ Add tests before implementation:
   - rejects non-JSON output extension if we choose to enforce `.json`.
 
 - `tests/acceptance/cli-init-benchmark.test.ts`
-  - `init benchmark` writes a `.benchmark.json`;
+  - `init benchmark --template` writes a `.benchmark.json`;
   - generated file passes `validate benchmark`;
   - `--fixture-path` creates fixture benchmarks;
   - `--force` overwrites;
   - missing prompt exits non-zero with a clear error.
 
 - `tests/acceptance/cli-init-benchmark-interactive.test.ts`
+  - `init benchmark` without `--template` enters interactive mode by default;
   - scripted stdin answers produce a valid file;
   - empty optional answers are omitted or emitted as empty arrays consistently;
   - cancellation or EOF returns a clear non-zero exit.
 
 ## Implementation Plan
 
-1. Add the acceptance tests for template generation and CLI non-interactive mode.
-2. Add the pure benchmark template helper and application use case.
-3. Add filesystem writer adapter.
-4. Add `init benchmark` CLI command in non-interactive mode.
-5. Update README Getting Started to use `init benchmark` before `validate benchmark`.
-6. Run:
+1. Add interactive-mode acceptance tests first, proving `init benchmark` defaults to interactive mode.
+2. Add non-interactive template acceptance tests for `init benchmark --template`.
+3. Add the pure benchmark template helper and application use case.
+4. Add filesystem writer adapter.
+5. Add `init benchmark` CLI command with interactive default and explicit `--template` mode.
+6. Update README Getting Started to use `init benchmark` before `validate benchmark`.
+7. Run:
 
 ```bash
 npm test
@@ -228,9 +233,7 @@ npm run typecheck
 npm run build
 ```
 
-7. Add interactive acceptance tests.
-8. Add interactive CLI prompt adapter.
-9. Keep JSON-only v1 behavior; YAML remains future.
+8. Keep JSON-only v1 behavior; YAML remains future.
 
 ## Risks and Constraints
 
