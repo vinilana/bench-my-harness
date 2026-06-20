@@ -3,9 +3,11 @@ import type { HookInstallation, InstallHarnessHooksPort } from "../ports/install
 import type { HarnessName, HarnessRunnerPort } from "../ports/harness-runner-port.js";
 import type { ValidationRunnerPort, ValidationRunnerResult } from "../ports/validation-runner-port.js";
 import type { WorkspaceProvisionerPort } from "../ports/workspace-provisioner-port.js";
+import type { ResolveBenchmarkPromptUseCase } from "./resolve-benchmark-prompt.js";
 
 interface BenchmarkPrompt {
-  text: string;
+  text?: string;
+  file?: string;
 }
 
 interface BenchmarkCommandSource {
@@ -30,6 +32,8 @@ export interface RunTrialInput {
   runId: string;
   trialId: string;
   workspaceRoot: string;
+  benchmarkRoot?: string;
+  promptRoot?: string;
   strictTelemetry?: boolean;
 }
 
@@ -53,6 +57,8 @@ export interface RunBenchmarkInput {
   trials: number;
   runId: string;
   workspaceRoot: string;
+  benchmarkRoot?: string;
+  promptRoot?: string;
   strictTelemetry?: boolean;
 }
 
@@ -74,6 +80,7 @@ export class BenchmarkRunner {
     private readonly ports: {
       hookInstaller: InstallHarnessHooksPort;
       harnessRunner: HarnessRunnerPort;
+      promptResolver?: ResolveBenchmarkPromptUseCase;
       validationRunner?: ValidationRunnerPort;
       artifactCollector: ArtifactCollectorPort;
       workspaceProvisioner: WorkspaceProvisionerPort;
@@ -90,6 +97,8 @@ export class BenchmarkRunner {
     let result: RunTrialResult;
 
     try {
+      const resolvedPrompt = await this.resolvePrompt(input);
+
       installation = await this.ports.hookInstaller.install({
         harness: input.harness,
         runId: input.runId,
@@ -103,7 +112,7 @@ export class BenchmarkRunner {
 
       const harnessResult = await this.ports.harnessRunner.execute({
         harness: input.harness,
-        prompt: input.benchmark.prompt.text,
+        prompt: resolvedPrompt,
         workspace,
         runId: input.runId,
         trialId: input.trialId,
@@ -210,6 +219,8 @@ export class BenchmarkRunner {
           runId: input.runId,
           trialId,
           workspaceRoot: input.workspaceRoot,
+          benchmarkRoot: input.benchmarkRoot,
+          promptRoot: input.promptRoot,
           strictTelemetry: input.strictTelemetry
         });
 
@@ -236,5 +247,26 @@ export class BenchmarkRunner {
     }
 
     return trials;
+  }
+
+  private async resolvePrompt(input: RunTrialInput): Promise<string> {
+    if (typeof input.benchmark.prompt.text === "string") {
+      return input.benchmark.prompt.text;
+    }
+
+    if (typeof input.benchmark.prompt.file === "string") {
+      const promptResolver = this.ports.promptResolver;
+
+      if (!promptResolver) {
+        throw new Error("Prompt file resolver is required for benchmark prompt.file");
+      }
+
+      return (await promptResolver.execute({
+        benchmark: input.benchmark,
+        root: input.promptRoot ?? input.benchmarkRoot ?? input.workspaceRoot
+      })).text;
+    }
+
+    throw new Error("Benchmark prompt must define text or file");
   }
 }

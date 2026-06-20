@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 import { readFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import { Command, CommanderError } from "commander";
 import { z } from "zod";
+import { CreateBenchmarkTemplateUseCase } from "../../../application/use-cases/create-benchmark-template.js";
 import { BenchmarkRunner } from "../../../application/use-cases/run-benchmark.js";
 import type { ArtifactCollectorPort } from "../../../application/ports/artifact-collector-port.js";
 import type { HarnessRunnerPort } from "../../../application/ports/harness-runner-port.js";
@@ -12,10 +13,17 @@ import { CodexHookInstaller } from "../../outbound/harnesses/codex/codex-hook-in
 import { FilesystemWorkspaceProvisioner } from "../../outbound/filesystem/filesystem-workspace-provisioner.js";
 import { ProcessHarnessRunner } from "../../outbound/harnesses/process-harness-runner.js";
 import { ProcessValidationRunner } from "../../outbound/harnesses/process-validation-runner.js";
+import { FilesystemBenchmarkTemplateWriter } from "../../outbound/filesystem/filesystem-benchmark-template-writer.js";
 import { FilesystemReportStore } from "../../outbound/storage/filesystem-report-store.js";
+import { FilesystemPromptFileReader } from "../../outbound/filesystem/filesystem-prompt-file-reader.js";
 import { BenchmarkSchema, type Benchmark } from "../../../domain/benchmark/benchmark-schema.js";
 import type { HarnessCommand } from "../../../domain/harnesses/harness-profile.js";
+import { ResolveBenchmarkPromptUseCase } from "../../../application/use-cases/resolve-benchmark-prompt.js";
 import { runHookCapture, type HookCaptureProvider } from "./hook-capture.js";
+import {
+  InteractiveBenchmarkAuthoring,
+  type BenchmarkAuthoringCommand
+} from "./interactive-benchmark-authoring.js";
 
 const EX_USAGE = 1;
 const EX_CONFIG = 78;
@@ -135,6 +143,51 @@ export function buildProgram(context: CliContext): Command {
       }
     });
 
+  const init = program.command("init").description("Create Bench My Harness project files.");
+
+  init
+    .command("benchmark")
+    .description("Create a benchmark JSON file.")
+    .requiredOption("--output <path>", "output benchmark JSON path")
+    .option("--template", "write a benchmark template from flags", false)
+    .option("--id <id>", "benchmark id")
+    .option("--name <name>", "benchmark name")
+    .option("--category <category>", "benchmark category")
+    .option("--repo-url <url>", "source repository URL")
+    .option("--fixture-path <path>", "fixture workspace path")
+    .option("--commit <commit>", "repository commit")
+    .option("--setup-command <command>", "setup command", collectOptionValue, [])
+    .option("--test-command <command>", "test command", collectOptionValue, [])
+    .option("--prompt <text>", "inline prompt text")
+    .option("--prompt-file <path>", "Markdown prompt file path")
+    .option("--constraint <constraint>", "prompt constraint", collectOptionValue, [])
+    .option("--timeout-seconds <seconds>", "timeout seconds", parsePositiveInt)
+    .option("--max-cost-usd <usd>", "maximum cost in USD", parseNonnegativeNumber)
+    .option("--required-file-changed <path>", "required changed file path", collectOptionValue, [])
+    .option("--forbidden-file-changed <path>", "forbidden changed file path", collectOptionValue, [])
+    .option("--semantic-requirement <requirement>", "semantic requirement", collectOptionValue, [])
+    .option("--force", "overwrite existing output", false)
+    .action(async (options: InitBenchmarkOptions) => {
+      const command =
+        options.template || hasNonInteractiveAuthoringOptions(options)
+          ? commandFromTemplateOptions(options)
+          : new InteractiveBenchmarkAuthoring({
+              stdin: context.stdin,
+              stdout: context.stdout
+            }).collect();
+
+      const benchmark = new CreateBenchmarkTemplateUseCase().execute(command);
+      const outputPath = resolvePath(context.cwd, options.output);
+
+      await new FilesystemBenchmarkTemplateWriter().write({
+        benchmark,
+        outputPath,
+        force: options.force ?? false
+      });
+
+      context.stdout(`benchmark template written: ${outputPath}\n`);
+    });
+
   const validate = program.command("validate").description("Validate Bench My Harness inputs.");
 
   validate
@@ -143,7 +196,8 @@ export function buildProgram(context: CliContext): Command {
     .argument("<path>", "benchmark JSON file")
     .action(async (path: string) => {
       try {
-        const benchmark = await readBenchmark(path, context.cwd);
+        const { benchmark, directory } = await readBenchmarkFile(path, context.cwd);
+        await validateBenchmarkPrompt(benchmark, directory);
         context.stdout(`benchmark valid: ${benchmark.id}@${benchmark.version}\n`);
       } catch (error) {
         context.stderr(`benchmark invalid: ${formatError(error)}\n`);
@@ -165,7 +219,7 @@ export function buildProgram(context: CliContext): Command {
     .option("--harness-command-json <json>", "JSON command config for a fake/local harness process")
     .action(async (options: RunCommandOptions) => {
       const harness = parseProvider(options.harness);
-      const benchmark = await readBenchmark(options.benchmark, context.cwd);
+      const { benchmark, directory } = await readBenchmarkFile(options.benchmark, context.cwd);
 
       const configuredCommand = options.harnessCommandJson
         ? parseHarnessCommandJson(options.harnessCommandJson)
@@ -187,7 +241,8 @@ export function buildProgram(context: CliContext): Command {
           : new DryRunHarnessRunner(),
         validationRunner: options.runValidation ? new ProcessValidationRunner() : undefined,
         artifactCollector: new DryRunArtifactCollector(),
-        workspaceProvisioner: new FilesystemWorkspaceProvisioner()
+        workspaceProvisioner: new FilesystemWorkspaceProvisioner(),
+        promptResolver: new ResolveBenchmarkPromptUseCase(new FilesystemPromptFileReader())
       });
       const result = await runner.runTrial({
         benchmark,
@@ -195,6 +250,7 @@ export function buildProgram(context: CliContext): Command {
         runId: options.runId,
         trialId: options.trialId,
         workspaceRoot: resolvePath(context.cwd, options.workspaceRoot),
+        promptRoot: directory,
         strictTelemetry: options.strictTelemetry ?? false
       });
 
@@ -281,8 +337,100 @@ interface ReportCommandOptions {
   readonly storeRoot?: string;
 }
 
-async function readBenchmark(path: string, cwd: string): Promise<Benchmark> {
-  return BenchmarkSchema.parse(await readJsonFile(path, cwd));
+interface InitBenchmarkOptions {
+  readonly output: string;
+  readonly template?: boolean;
+  readonly id?: string;
+  readonly name?: string;
+  readonly category?: string;
+  readonly repoUrl?: string;
+  readonly fixturePath?: string;
+  readonly commit?: string;
+  readonly setupCommand?: readonly string[];
+  readonly testCommand?: readonly string[];
+  readonly prompt?: string;
+  readonly promptFile?: string;
+  readonly constraint?: readonly string[];
+  readonly timeoutSeconds?: number;
+  readonly maxCostUsd?: number;
+  readonly requiredFileChanged?: readonly string[];
+  readonly forbiddenFileChanged?: readonly string[];
+  readonly semanticRequirement?: readonly string[];
+  readonly force?: boolean;
+}
+
+function commandFromTemplateOptions(options: InitBenchmarkOptions): BenchmarkAuthoringCommand {
+  return {
+    id: requiredOption(options.id, "--id"),
+    name: requiredOption(options.name, "--name"),
+    category: requiredOption(options.category, "--category"),
+    repoUrl: options.repoUrl,
+    fixturePath: options.fixturePath,
+    commit: options.commit,
+    setupCommands: options.setupCommand ?? [],
+    testCommands: options.testCommand ?? [],
+    promptText: options.prompt,
+    promptFile: options.promptFile,
+    constraints: options.constraint ?? [],
+    timeoutSeconds: options.timeoutSeconds,
+    maxCostUsd: options.maxCostUsd,
+    requiredFilesChanged: options.requiredFileChanged ?? [],
+    forbiddenFilesChanged: options.forbiddenFileChanged ?? [],
+    semanticRequirements: options.semanticRequirement ?? []
+  };
+}
+
+function hasNonInteractiveAuthoringOptions(options: InitBenchmarkOptions): boolean {
+  return (
+    options.id !== undefined ||
+    options.name !== undefined ||
+    options.category !== undefined ||
+    options.repoUrl !== undefined ||
+    options.fixturePath !== undefined ||
+    options.commit !== undefined ||
+    hasEntries(options.setupCommand) ||
+    hasEntries(options.testCommand) ||
+    options.prompt !== undefined ||
+    options.promptFile !== undefined ||
+    hasEntries(options.constraint) ||
+    options.timeoutSeconds !== undefined ||
+    options.maxCostUsd !== undefined ||
+    hasEntries(options.requiredFileChanged) ||
+    hasEntries(options.forbiddenFileChanged) ||
+    hasEntries(options.semanticRequirement)
+  );
+}
+
+function collectOptionValue(value: string, previous: readonly string[]): readonly string[] {
+  return [...previous, value];
+}
+
+function requiredOption(value: string | undefined, option: string): string {
+  if (value === undefined || value.trim().length === 0) {
+    throw new Error(`init benchmark requires ${option}`);
+  }
+
+  return value;
+}
+
+function hasEntries(values: readonly unknown[] | undefined): boolean {
+  return values !== undefined && values.length > 0;
+}
+
+async function readBenchmarkFile(path: string, cwd: string): Promise<{ benchmark: Benchmark; directory: string }> {
+  const benchmarkPath = resolvePath(cwd, path);
+
+  return {
+    benchmark: BenchmarkSchema.parse(await readJsonFile(path, cwd)),
+    directory: dirname(benchmarkPath)
+  };
+}
+
+async function validateBenchmarkPrompt(benchmark: Benchmark, directory: string): Promise<void> {
+  await new ResolveBenchmarkPromptUseCase(new FilesystemPromptFileReader()).execute({
+    benchmark,
+    root: directory
+  });
 }
 
 async function readJsonFile(path: string, cwd: string): Promise<unknown> {
@@ -358,6 +506,16 @@ function parsePositiveInt(value: string): number {
 
   if (!Number.isInteger(parsed) || parsed <= 0) {
     throw new Error(`expected a positive integer, got: ${value}`);
+  }
+
+  return parsed;
+}
+
+function parseNonnegativeNumber(value: string): number {
+  const parsed = Number(value);
+
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    throw new Error(`expected a nonnegative number, got: ${value}`);
   }
 
   return parsed;

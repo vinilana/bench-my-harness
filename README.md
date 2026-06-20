@@ -194,7 +194,41 @@ node ./dist/adapters/inbound/cli/main.js --help
 
 ### 2. Create or validate a benchmark
 
-BMH v1 accepts JSON benchmark files. Start from the fixture shape in `tests/fixtures/benchmarks/login-validation.benchmark.json`.
+BMH v1 accepts JSON benchmark files. Create one interactively:
+
+```bash
+node ./dist/adapters/inbound/cli/main.js init benchmark \
+  --output benchmarks/login-validation.benchmark.json
+```
+
+Or generate a JSON template from flags:
+
+```bash
+node ./dist/adapters/inbound/cli/main.js init benchmark --template \
+  --id login-validation-001 \
+  --name "Login validation" \
+  --category bugfix \
+  --repo-url file:///workspace/app \
+  --commit abc123 \
+  --prompt "Add input validation to the login form." \
+  --test-command "npm test" \
+  --output benchmarks/login-validation.benchmark.json
+```
+
+For larger prompts, reference a Markdown prompt file instead of inline text:
+
+```bash
+node ./dist/adapters/inbound/cli/main.js init benchmark --template \
+  --id login-validation-001 \
+  --name "Login validation" \
+  --category bugfix \
+  --repo-url file:///workspace/app \
+  --prompt-file login-validation.spec.md \
+  --test-command "npm test" \
+  --output benchmarks/login-validation.benchmark.json
+```
+
+Validate the generated benchmark before running it:
 
 ```bash
 node ./dist/adapters/inbound/cli/main.js validate benchmark tests/fixtures/benchmarks/login-validation.benchmark.json

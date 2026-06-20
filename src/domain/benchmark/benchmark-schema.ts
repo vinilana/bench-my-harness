@@ -19,9 +19,14 @@ const FixtureSchema = z.object({
 });
 
 const PromptSchema = z.object({
-  text: NonEmptyStringSchema,
+  text: NonEmptyStringSchema.optional(),
+  file: NonEmptyStringSchema.refine((value) => value.endsWith(".md"), {
+    message: "prompt.file must end with .md"
+  }).optional(),
   attachments: z.array(NonEmptyStringSchema).optional(),
   constraints: z.array(NonEmptyStringSchema).optional()
+}).refine((prompt) => (prompt.text === undefined) !== (prompt.file === undefined), {
+  message: "Prompt must define exactly one of text or file"
 });
 
 const ExpectedOutputSchema = z.object({
