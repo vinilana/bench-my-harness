@@ -185,6 +185,78 @@ await import("node:fs/promises").then(({ writeFile }) => writeFile(process.env.C
     });
   });
 
+  test("run can execute benchmark validation commands when requested", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "bmh-cli-validation-"));
+    const benchmarkPath = join(dir, "benchmark.json");
+    const validatorPath = join(dir, "validator.mjs");
+    const markerPath = join(dir, "validation-marker.txt");
+    const output = createOutput();
+    await writeFile(
+      validatorPath,
+      `
+await import("node:fs/promises").then(({ appendFile }) => appendFile(process.argv[2], [
+  process.argv[3],
+  process.cwd(),
+  process.env.BMH_RUN_ID,
+  process.env.BMH_TRIAL_ID,
+  process.env.BMH_PROVIDER
+].join(":") + "\\n"));
+process.stdout.write(process.argv[3] + " ok\\n");
+`,
+      "utf8"
+    );
+    await writeFile(
+      benchmarkPath,
+      JSON.stringify({
+        id: "validation-cli-001",
+        name: "Validation CLI",
+        version: "1.0.0",
+        category: "smoke",
+        repo: {
+          url: "file:///tmp/bmh/validation-cli",
+          commit: "abc123",
+          setup_commands: [`${JSON.stringify(process.execPath)} ${JSON.stringify(validatorPath)} ${JSON.stringify(markerPath)} setup`],
+          test_commands: [`${JSON.stringify(process.execPath)} ${JSON.stringify(validatorPath)} ${JSON.stringify(markerPath)} validation`]
+        },
+        prompt: { text: "Do validation work." },
+        expected_output: { tests_must_pass: true },
+        limits: { timeout_seconds: 5 },
+        evaluation: { scoring: { tests: 1 } }
+      }),
+      "utf8"
+    );
+
+    const exitCode = await runCli(
+      [
+        "node",
+        "bench-my-harness",
+        "run",
+        "--benchmark",
+        benchmarkPath,
+        "--harness",
+        "codex",
+        "--workspace-root",
+        join(dir, "workspaces"),
+        "--run-id",
+        "run_validation_cli",
+        "--trial-id",
+        "trial_validation_cli",
+        "--dry-run",
+        "--run-validation"
+      ],
+      { stdout: output.stdout, stderr: output.stderr }
+    );
+
+    const marker = await readFile(markerPath, "utf8");
+
+    expect(exitCode).toBe(0);
+    expect(output.stdout()).toContain("\"status\":\"completed\"");
+    expect(marker.split("\n").filter(Boolean)).toEqual([
+      `setup:${join(dir, "workspaces", "trial_validation_cli")}:run_validation_cli:trial_validation_cli:codex`,
+      `validation:${join(dir, "workspaces", "trial_validation_cli")}:run_validation_cli:trial_validation_cli:codex`
+    ]);
+  });
+
   test("report renders a provided JSON report input", async () => {
     const dir = await mkdtemp(join(tmpdir(), "bmh-cli-report-"));
     const reportPath = join(dir, "report.json");

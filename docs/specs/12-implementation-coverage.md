@@ -30,7 +30,7 @@ This file tracks executable coverage against the current specs. It is not a repl
 | --- | --- | --- |
 | Phase 0 - Foundation | done | Specs, ADRs, README, tests, initial core implemented. |
 | Phase 1 - Ingestion and normalization | done | Raw storage, normalized storage, stdin hook capture, file import, reprocessing, and expanded lifecycle normalization covered by tests. |
-| Phase 2 - Benchmark runner | partial | Multi-trial runner, isolated workspaces, hook install/uninstall, artifacts, process runner, CLI process mode, and validation command execution covered. Real harness smoke tests remain opt-in/future. |
+| Phase 2 - Benchmark runner | partial | Multi-trial runner, isolated workspaces, hook install/uninstall, artifacts, process runner, CLI process mode, validation command execution, and CLI validation execution are covered. Real harness smoke tests remain opt-in/future. |
 | Phase 3 - Metrics and evaluation | done | Derived metrics, scoring, statistics, comparability-aware reports, and JSON/Markdown export covered by tests. |
 | Phase 4 - Additional adapters | future | Cursor, OpenCode, Pi outside v1; local HTTP ingest can be implemented as adapter infrastructure. |
 | Phase 5 - Product | future | UI/API/dashboard/CI gates after v1 CLI/reporting. |
@@ -63,5 +63,4 @@ This file tracks executable coverage against the current specs. It is not a repl
 - Real Codex and Claude Code checks are future opt-in local-only smoke tests and require local binaries/credentials; they are not part of `npm test`.
 - Durable database/filesystem stores are not implemented; v1 currently uses in-memory stores plus local hook spool/artifact files.
 - YAML benchmark parsing is not implemented; JSON-only v1 accepts JSON benchmarks and rejects `.yml` and `.yaml` benchmark files explicitly.
-- CLI wiring for process-backed validation command execution remains future work; the benchmark runner has a validation port and acceptance coverage with fake commands.
 - UI, dashboard, CSV export, CI gates, Cursor, OpenCode, and Pi remain future phases.

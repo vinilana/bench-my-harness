@@ -11,6 +11,7 @@ import { ClaudeCodeHookInstaller } from "../../outbound/harnesses/claude-code/cl
 import { CodexHookInstaller } from "../../outbound/harnesses/codex/codex-hook-installer.js";
 import { FilesystemWorkspaceProvisioner } from "../../outbound/filesystem/filesystem-workspace-provisioner.js";
 import { ProcessHarnessRunner } from "../../outbound/harnesses/process-harness-runner.js";
+import { ProcessValidationRunner } from "../../outbound/harnesses/process-validation-runner.js";
 import { FilesystemReportStore } from "../../outbound/storage/filesystem-report-store.js";
 import { BenchmarkSchema, type Benchmark } from "../../../domain/benchmark/benchmark-schema.js";
 import type { HarnessCommand } from "../../../domain/harnesses/harness-profile.js";
@@ -160,6 +161,7 @@ export function buildProgram(context: CliContext): Command {
     .option("--trial-id <trialId>", "trial id", "trial_1")
     .option("--strict-telemetry", "fail trial on telemetry failures", false)
     .option("--dry-run", "use a fake harness runner instead of Codex or Claude Code binaries", false)
+    .option("--run-validation", "execute benchmark setup and validation commands after harness execution", false)
     .option("--harness-command-json <json>", "JSON command config for a fake/local harness process")
     .action(async (options: RunCommandOptions) => {
       const harness = parseProvider(options.harness);
@@ -183,6 +185,7 @@ export function buildProgram(context: CliContext): Command {
               [harness]: configuredCommand.command
             })
           : new DryRunHarnessRunner(),
+        validationRunner: options.runValidation ? new ProcessValidationRunner() : undefined,
         artifactCollector: new DryRunArtifactCollector(),
         workspaceProvisioner: new FilesystemWorkspaceProvisioner()
       });
@@ -268,6 +271,7 @@ interface RunCommandOptions {
   readonly trialId: string;
   readonly strictTelemetry?: boolean;
   readonly dryRun?: boolean;
+  readonly runValidation?: boolean;
   readonly harnessCommandJson?: string;
 }
 
