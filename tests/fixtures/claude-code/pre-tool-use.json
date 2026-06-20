@@ -1,0 +1,12 @@
+{
+  "session_id": "claude-session-1",
+  "transcript_path": "/tmp/bmh/claude-session.jsonl",
+  "cwd": "/tmp/bmh/workspace",
+  "permission_mode": "default",
+  "hook_event_name": "PreToolUse",
+  "tool_name": "Bash",
+  "tool_use_id": "tool-1",
+  "tool_input": {
+    "command": "npm test"
+  }
+}

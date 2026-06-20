@@ -1,0 +1,9 @@
+{
+  "session_id": "codex-session-1",
+  "transcript_path": "/tmp/bmh/codex-session.jsonl",
+  "cwd": "/tmp/bmh/workspace",
+  "hook_event_name": "Stop",
+  "turn_id": "turn-1",
+  "stop_hook_active": false,
+  "last_assistant_message": "Implemented input validation and tests pass."
+}

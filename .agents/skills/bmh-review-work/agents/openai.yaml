@@ -1,0 +1,4 @@
+interface:
+  display_name: "BMH Review Work"
+  short_description: "Review BMH work against quality gates."
+  default_prompt: "Use $bmh-review-work to review a Bench My Harness change against tests, specs, and architecture gates."

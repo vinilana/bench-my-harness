@@ -1,0 +1,23 @@
+{
+  "id": "missing-limits-001",
+  "name": "Missing limits",
+  "version": "1.0.0",
+  "category": "bugfix",
+  "repo": {
+    "url": "file:///tmp/bmh/sample-repo",
+    "commit": "abc123",
+    "setup_commands": ["npm install"],
+    "test_commands": ["npm test"]
+  },
+  "prompt": {
+    "text": "Add input validation to the login form."
+  },
+  "expected_output": {
+    "tests_must_pass": true
+  },
+  "evaluation": {
+    "scoring": {
+      "tests": 1
+    }
+  }
+}

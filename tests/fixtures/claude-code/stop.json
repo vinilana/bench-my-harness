@@ -1,0 +1,9 @@
+{
+  "session_id": "claude-session-1",
+  "transcript_path": "/tmp/bmh/claude-session.jsonl",
+  "cwd": "/tmp/bmh/workspace",
+  "permission_mode": "default",
+  "hook_event_name": "Stop",
+  "stop_hook_active": false,
+  "last_assistant_message": "Implemented input validation and tests pass."
+}

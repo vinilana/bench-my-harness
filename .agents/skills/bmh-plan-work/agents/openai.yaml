@@ -1,0 +1,4 @@
+interface:
+  display_name: "BMH Plan Work"
+  short_description: "Plan BMH work with quality gates."
+  default_prompt: "Use $bmh-plan-work to plan a Bench My Harness change with specs, TDD, and architecture gates."

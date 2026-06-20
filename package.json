@@ -1,0 +1,28 @@
+{
+  "name": "bench-my-harness",
+  "version": "0.1.0",
+  "description": "Benchmark and observability harness for comparing agentic coding tools.",
+  "type": "module",
+  "bin": {
+    "bench-my-harness": "./dist/adapters/inbound/cli/main.js"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "commander": "^14.0.0",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.9.0",
+    "vitest": "^4.0.0"
+  }
+}

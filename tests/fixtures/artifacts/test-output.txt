@@ -1,0 +1,2 @@
+PASS src/login.test.ts
+all tests passed
