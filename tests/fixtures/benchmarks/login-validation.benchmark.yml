@@ -1,0 +1,26 @@
+id: login-validation-001
+name: Login validation
+version: 1.0.0
+category: bugfix
+repo:
+  url: file:///tmp/bmh/sample-repo
+  commit: abc123
+  setup_commands:
+    - npm install
+  test_commands:
+    - npm test
+prompt:
+  text: Add input validation to the login form.
+  constraints:
+    - Do not change package.json
+expected_output:
+  tests_must_pass: true
+  forbidden_files_changed:
+    - package.json
+limits:
+  timeout_seconds: 900
+  max_cost_usd: 5
+evaluation:
+  scoring:
+    tests: 0.7
+    constraints: 0.3

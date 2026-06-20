@@ -127,6 +127,10 @@ Test categories:
 
 The v1 test suite must not call real Codex or Claude Code. Real harness execution belongs in later smoke tests gated by local credentials and explicit opt-in.
 
+## Real Harness Smoke Tests
+
+Real Codex and Claude Code smoke tests are future, local-only checks for maintainers with the required binaries, credentials, and disposable repositories. They are not acceptance tests, are not required for CI, and must not run as part of `npm test`.
+
 ## Project Layout
 
 ```text
@@ -167,7 +171,7 @@ bench-my-harness run --benchmark benchmark.json --harness claude_code --harness-
 bench-my-harness report --input report.json
 ```
 
-The v1 CLI currently accepts JSON benchmark files. YAML fixtures are documented in the roadmap as a future format and are rejected explicitly by the current CLI.
+The v1 CLI is JSON-only v1 for benchmark files. YAML benchmark files are rejected by `validate benchmark` and `run`; use `.json` benchmark fixtures until YAML parsing is implemented in a later version.
 
 ## Acceptance Gates
 
@@ -194,5 +198,5 @@ The implementation is not acceptable until:
 6. Implement benchmark runner with fake harness tests.
 7. Implement usage capture interfaces and best-effort collectors.
 8. Generate reports.
-9. Add real-harness smoke tests.
+9. Add opt-in local-only real-harness smoke tests.
 10. Revisit Cursor, OpenCode, and Pi adapters.

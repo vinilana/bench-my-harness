@@ -11,6 +11,7 @@ import { ClaudeCodeHookInstaller } from "../../outbound/harnesses/claude-code/cl
 import { CodexHookInstaller } from "../../outbound/harnesses/codex/codex-hook-installer.js";
 import { FilesystemWorkspaceProvisioner } from "../../outbound/filesystem/filesystem-workspace-provisioner.js";
 import { ProcessHarnessRunner } from "../../outbound/harnesses/process-harness-runner.js";
+import { FilesystemReportStore } from "../../outbound/storage/filesystem-report-store.js";
 import { BenchmarkSchema, type Benchmark } from "../../../domain/benchmark/benchmark-schema.js";
 import type { HarnessCommand } from "../../../domain/harnesses/harness-profile.js";
 import { runHookCapture, type HookCaptureProvider } from "./hook-capture.js";
@@ -217,6 +218,7 @@ export function buildProgram(context: CliContext): Command {
     .description("Render a benchmark run report.")
     .option("--input <path>", "JSON report input")
     .option("--run-id <runId>", "run id to load from configured storage")
+    .option("--store-root <path>", "local report store root", ".bmh/runs")
     .action(async (options: ReportCommandOptions) => {
       if (options.input) {
         const report = await readJsonFile(options.input, context.cwd);
@@ -225,7 +227,17 @@ export function buildProgram(context: CliContext): Command {
       }
 
       if (options.runId) {
-        context.stderr(`run not found: ${options.runId}; report storage is not configured for this CLI build\n`);
+        const reportStore = new FilesystemReportStore({
+          root: resolvePath(context.cwd, options.storeRoot ?? ".bmh/runs")
+        });
+        const report = await reportStore.findByRunId(options.runId);
+
+        if (report !== undefined) {
+          context.stdout(renderReport(report));
+          return;
+        }
+
+        context.stderr(`run not found: ${options.runId}\n`);
         throw new CliExit(EX_CONFIG, `run not found: ${options.runId}`);
       }
 
@@ -262,6 +274,7 @@ interface RunCommandOptions {
 interface ReportCommandOptions {
   readonly input?: string;
   readonly runId?: string;
+  readonly storeRoot?: string;
 }
 
 async function readBenchmark(path: string, cwd: string): Promise<Benchmark> {
@@ -378,7 +391,19 @@ function renderReport(report: unknown): string {
   const record = report as Record<string, unknown>;
   const runId = stringField(record.run_id) ?? stringField(record.runId) ?? "unknown";
   const status = stringField(record.status) ?? "unknown";
-  const lines = [`Run ${runId}`, `Status: ${status}`];
+  const lines = [`Run ${runId}`];
+
+  if (hasBenchmarkReportFields(record)) {
+    lines.push(
+      `Provider: ${stringField(record.provider) ?? "unknown"}`,
+      `Benchmark: ${formatBenchmark(record.benchmark)}`,
+      `Score: ${formatScore(record.evaluation)}`,
+      `Comparability: ${formatComparability(record.comparability)}`
+    );
+  } else {
+    lines.push(`Status: ${status}`);
+  }
+
   const trials = Array.isArray(record.trials) ? record.trials : [];
 
   for (const trial of trials) {
@@ -393,6 +418,36 @@ function renderReport(report: unknown): string {
   }
 
   return `${lines.join("\n")}\n`;
+}
+
+function hasBenchmarkReportFields(record: Record<string, unknown>): boolean {
+  return record.benchmark !== undefined && record.evaluation !== undefined && record.comparability !== undefined;
+}
+
+function formatBenchmark(value: unknown): string {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return "unknown";
+  }
+
+  const record = value as Record<string, unknown>;
+  return `${stringField(record.id) ?? "unknown"}@${stringField(record.version) ?? "unknown"}`;
+}
+
+function formatScore(value: unknown): string {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return "unknown";
+  }
+
+  const score = (value as Record<string, unknown>).score_total;
+  return typeof score === "number" ? String(score) : "unknown";
+}
+
+function formatComparability(value: unknown): string {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return "unknown";
+  }
+
+  return stringField((value as Record<string, unknown>).status) ?? "unknown";
 }
 
 function stringField(value: unknown): string | undefined {

@@ -1,15 +1,23 @@
 import type { ArtifactCollectorPort } from "../ports/artifact-collector-port.js";
 import type { HookInstallation, InstallHarnessHooksPort } from "../ports/install-harness-hooks-port.js";
 import type { HarnessName, HarnessRunnerPort } from "../ports/harness-runner-port.js";
+import type { ValidationRunnerPort, ValidationRunnerResult } from "../ports/validation-runner-port.js";
 import type { WorkspaceProvisionerPort } from "../ports/workspace-provisioner-port.js";
 
 interface BenchmarkPrompt {
   text: string;
 }
 
+interface BenchmarkCommandSource {
+  setup_commands?: readonly string[];
+  test_commands?: readonly string[];
+}
+
 interface BenchmarkDefinition {
   id: string;
   version: string;
+  repo?: BenchmarkCommandSource;
+  fixture?: BenchmarkCommandSource;
   prompt: BenchmarkPrompt;
   limits?: {
     timeout_seconds?: number;
@@ -66,6 +74,7 @@ export class BenchmarkRunner {
     private readonly ports: {
       hookInstaller: InstallHarnessHooksPort;
       harnessRunner: HarnessRunnerPort;
+      validationRunner?: ValidationRunnerPort;
       artifactCollector: ArtifactCollectorPort;
       workspaceProvisioner: WorkspaceProvisionerPort;
     }
@@ -112,19 +121,34 @@ export class BenchmarkRunner {
         timeoutSeconds: input.benchmark.limits?.timeout_seconds
       });
 
+      const harnessSucceeded = !harnessResult.timedOut && harnessResult.exitCode === 0;
+      let validationResult: ValidationRunnerResult | undefined;
+      let testOutputPath = harnessResult.testOutputPath;
+
+      if (harnessSucceeded) {
+        validationResult = await this.runValidationIfConfigured(input, workspace);
+        testOutputPath = validationResult?.testOutputPath ?? testOutputPath;
+      }
+
       await this.ports.artifactCollector.collect({
         runId: input.runId,
         trialId: input.trialId,
         workspace,
         transcriptPath: harnessResult.transcriptPath,
         diffPath: harnessResult.diffPath,
-        testOutputPath: harnessResult.testOutputPath
+        testOutputPath
       });
 
       if (harnessResult.timedOut) {
         result = { status: "failed", failure_classification: "timeout", workspace };
       } else if (harnessResult.exitCode !== 0) {
         result = { status: "failed", failure_classification: "agent_failed", workspace };
+      } else if (validationResult?.status === "failed") {
+        result = {
+          status: "failed",
+          failure_classification: validationResult.failedPhase === "setup" ? "environment_failed" : "agent_failed",
+          workspace
+        };
       } else {
         result = { status: "completed", workspace };
       }
@@ -141,6 +165,35 @@ export class BenchmarkRunner {
     }
 
     return result;
+  }
+
+  private async runValidationIfConfigured(
+    input: RunTrialInput,
+    workspace: string
+  ): Promise<ValidationRunnerResult | undefined> {
+    const validationRunner = this.ports.validationRunner;
+
+    if (!validationRunner) {
+      return undefined;
+    }
+
+    const commandSource = input.benchmark.repo ?? input.benchmark.fixture;
+    const setupCommands = commandSource?.setup_commands ?? [];
+    const validationCommands = commandSource?.test_commands ?? [];
+
+    if (setupCommands.length === 0 && validationCommands.length === 0) {
+      return undefined;
+    }
+
+    return validationRunner.execute({
+      runId: input.runId,
+      trialId: input.trialId,
+      harness: input.harness,
+      workspace,
+      setupCommands,
+      validationCommands,
+      timeoutSeconds: input.benchmark.limits?.timeout_seconds
+    });
   }
 
   public async runBenchmark(input: RunBenchmarkInput): Promise<RunBenchmarkResult> {

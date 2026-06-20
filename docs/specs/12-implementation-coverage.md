@@ -14,7 +14,7 @@ This file tracks executable coverage against the current specs. It is not a repl
 | Requirement | Status | Evidence / Next Work |
 | --- | --- | --- |
 | Register harnesses with name, type, version, command, and capabilities | done | `RegisterHarnessUseCase`, health check ports, and acceptance tests. |
-| Register versioned benchmarks | partial | `BenchmarkSchema` and CLI validation exist; durable benchmark catalog remains future storage work. |
+| Register versioned benchmarks | partial | `BenchmarkSchema` and JSON-only v1 CLI validation exist; durable benchmark catalog and YAML parsing remain future storage work. |
 | Run benchmarks with multiple trials per harness | done | `BenchmarkRunner.runBenchmark` orchestration and acceptance tests cover Codex + Claude Code with repeated trials. |
 | Capture events via local hooks and stdin | done | `runHookCapture`, hook installers, acceptance tests. |
 | Capture events via file/import | done | JSON/JSONL import use case and acceptance tests. |
@@ -30,7 +30,7 @@ This file tracks executable coverage against the current specs. It is not a repl
 | --- | --- | --- |
 | Phase 0 - Foundation | done | Specs, ADRs, README, tests, initial core implemented. |
 | Phase 1 - Ingestion and normalization | done | Raw storage, normalized storage, stdin hook capture, file import, reprocessing, and expanded lifecycle normalization covered by tests. |
-| Phase 2 - Benchmark runner | partial | Multi-trial runner, isolated workspaces, hook install/uninstall, artifacts, process runner, and CLI process mode covered. Validation command execution and real harness smoke tests remain opt-in/future. |
+| Phase 2 - Benchmark runner | partial | Multi-trial runner, isolated workspaces, hook install/uninstall, artifacts, process runner, CLI process mode, and validation command execution covered. Real harness smoke tests remain opt-in/future. |
 | Phase 3 - Metrics and evaluation | done | Derived metrics, scoring, statistics, comparability-aware reports, and JSON/Markdown export covered by tests. |
 | Phase 4 - Additional adapters | future | Cursor, OpenCode, Pi outside v1; local HTTP ingest can be implemented as adapter infrastructure. |
 | Phase 5 - Product | future | UI/API/dashboard/CI gates after v1 CLI/reporting. |
@@ -53,15 +53,15 @@ This file tracks executable coverage against the current specs. It is not a repl
 
 ## Current Verification Snapshot
 
-- `npm test`: 27 files, 102 tests passing.
+- `npm test`: 30 files, 117 tests passing.
 - `npm run typecheck`: passing.
 - `npm run build`: passing.
 - Production provider scope remains Codex and Claude Code.
 
 ## Remaining Non-Blocking Gaps
 
-- Real Codex and Claude Code smoke tests are still opt-in and require local binaries/credentials.
+- Real Codex and Claude Code checks are future opt-in local-only smoke tests and require local binaries/credentials; they are not part of `npm test`.
 - Durable database/filesystem stores are not implemented; v1 currently uses in-memory stores plus local hook spool/artifact files.
-- YAML benchmark parsing is not implemented; current CLI accepts JSON benchmarks and rejects YAML explicitly.
-- Full validation command execution is not yet wired into the benchmark runner; test output artifacts can be collected and evaluated.
+- YAML benchmark parsing is not implemented; JSON-only v1 accepts JSON benchmarks and rejects `.yml` and `.yaml` benchmark files explicitly.
+- CLI wiring for process-backed validation command execution remains future work; the benchmark runner has a validation port and acceptance coverage with fake commands.
 - UI, dashboard, CSV export, CI gates, Cursor, OpenCode, and Pi remain future phases.
