@@ -20,13 +20,32 @@ BMH turns those comparisons into reproducible benchmark runs with captured event
 - Mark every metric with source and confidence.
 - Refuse strong comparisons when data quality or harness capabilities are incompatible.
 
-## Non-goals for v1
+## Roadmap Scope
+
+BMH is being built in phases. The current v1 foundation is focused on a local, reproducible benchmark workflow for Codex and Claude Code. Items that were previously listed as v1 non-goals are now tracked as future roadmap phases instead of being treated as permanently out of scope.
+
+### Implemented in v1
+
+- Codex and Claude Code adapter contracts.
+- Automatic temporary hook installation per trial.
+- Raw hook event preservation and canonical normalization.
+- JSON/JSONL event import and reprocessing.
+- Versioned JSON benchmark validation and catalog storage.
+- Multi-trial benchmark orchestration with isolated workspaces.
+- Process-backed fake/local harness execution for tests and controlled runs.
+- Validation command execution through a port-backed runner.
+- Usage, metric, comparability, scoring, and report models with source/confidence.
+- JSON and Markdown report export with redaction by default.
+- Local HTTP ingest with HMAC, timestamp, nonce, provider, and payload-size checks.
+
+### Future phases
 
 - Cursor, OpenCode, and Pi adapters.
 - Distributed execution.
 - Public leaderboard.
-- Fine-tuning or model training.
-- Manual interactive benchmark mode as a comparable result.
+- Fine-tuning or model training workflows.
+- Manual interactive benchmark mode as exploratory evidence, not as a comparable benchmark result.
+- UI/dashboard, CSV export, and CI gates.
 
 ## Stack
 
@@ -151,6 +170,119 @@ docs/
   prompts/
 ```
 
+## Getting Started
+
+### 1. Install and build
+
+```bash
+npm install
+npm run build
+npm test
+```
+
+The executable entrypoint is generated at:
+
+```bash
+./dist/adapters/inbound/cli/main.js
+```
+
+You can run it directly with `node`:
+
+```bash
+node ./dist/adapters/inbound/cli/main.js --help
+```
+
+### 2. Create or validate a benchmark
+
+BMH v1 accepts JSON benchmark files. Start from the fixture shape in `tests/fixtures/benchmarks/login-validation.benchmark.json`.
+
+```bash
+node ./dist/adapters/inbound/cli/main.js validate benchmark tests/fixtures/benchmarks/login-validation.benchmark.json
+```
+
+YAML benchmark files are intentionally rejected in v1.
+
+### 3. Run a local dry run
+
+Use dry-run mode to verify benchmark parsing, workspace creation, hook installation flow, and CLI output without launching Codex or Claude Code.
+
+```bash
+node ./dist/adapters/inbound/cli/main.js run \
+  --benchmark tests/fixtures/benchmarks/login-validation.benchmark.json \
+  --harness codex \
+  --workspace-root .bmh/workspaces \
+  --run-id run_local_001 \
+  --trial-id codex_trial_1 \
+  --dry-run
+```
+
+### 4. Run Codex
+
+Codex is supported through the `codex` harness id. The current process runner sends the benchmark prompt to the configured process over stdin and injects `BMH_*` environment variables. Replace `args` with the non-interactive arguments required by your local Codex CLI.
+
+```bash
+node ./dist/adapters/inbound/cli/main.js run \
+  --benchmark tests/fixtures/benchmarks/login-validation.benchmark.json \
+  --harness codex \
+  --workspace-root .bmh/workspaces \
+  --run-id run_codex_001 \
+  --trial-id codex_trial_1 \
+  --harness-command-json '{"executable":"codex","args":[]}' \
+  --run-validation
+```
+
+During the run, BMH writes project-local Codex hook configuration inside the isolated trial workspace and points hooks at `bench-my-harness hook-capture --provider codex`.
+
+### 5. Run Claude Code
+
+Claude Code is supported through the `claude_code` harness id. The current process runner also sends the benchmark prompt to stdin and injects `BMH_*` environment variables. Replace `args` with the non-interactive arguments required by your local Claude Code CLI.
+
+```bash
+node ./dist/adapters/inbound/cli/main.js run \
+  --benchmark tests/fixtures/benchmarks/login-validation.benchmark.json \
+  --harness claude_code \
+  --workspace-root .bmh/workspaces \
+  --run-id run_claude_001 \
+  --trial-id claude_trial_1 \
+  --harness-command-json '{"executable":"claude","args":[]}' \
+  --run-validation
+```
+
+During the run, BMH writes project-local Claude Code hook configuration inside the isolated trial workspace and points hooks at `bench-my-harness hook-capture --provider claude_code`.
+
+### 6. Capture a hook event directly
+
+Harness hooks call `hook-capture` with one JSON event on stdin. This command is useful for adapter debugging:
+
+```bash
+printf '{"hook_event_name":"PreToolUse","session_id":"debug","tool_name":"Bash"}' | \
+  node ./dist/adapters/inbound/cli/main.js hook-capture \
+    --provider codex \
+    --event PreToolUse \
+    --run-id run_debug \
+    --trial-id trial_debug \
+    --event-source stdin \
+    --spool .bmh/debug/events.jsonl
+```
+
+Use `--provider claude_code` for Claude Code hook payloads.
+
+### 7. Render a report
+
+Render a report JSON file directly:
+
+```bash
+node ./dist/adapters/inbound/cli/main.js report --input report.json
+```
+
+Or render a report stored at `.bmh/runs/<run-id>/report.json`:
+
+```bash
+node ./dist/adapters/inbound/cli/main.js report \
+  --run-id run_codex_001 \
+  --store-root .bmh/runs
+```
+
 ## Commands
 
 ```bash
@@ -167,8 +299,10 @@ Current CLI surface:
 bench-my-harness hook-capture --provider codex --event PreToolUse
 bench-my-harness validate benchmark benchmark.json
 bench-my-harness run --benchmark benchmark.json --harness codex --dry-run
-bench-my-harness run --benchmark benchmark.json --harness claude_code --harness-command-json '{"executable":"node","args":["fake-harness.mjs"]}'
+bench-my-harness run --benchmark benchmark.json --harness codex --harness-command-json '{"executable":"codex","args":[]}' --run-validation
+bench-my-harness run --benchmark benchmark.json --harness claude_code --harness-command-json '{"executable":"claude","args":[]}' --run-validation
 bench-my-harness report --input report.json
+bench-my-harness report --run-id run_123 --store-root .bmh/runs
 ```
 
 The v1 CLI is JSON-only v1 for benchmark files. YAML benchmark files are rejected by `validate benchmark` and `run`; use `.json` benchmark fixtures until YAML parsing is implemented in a later version.

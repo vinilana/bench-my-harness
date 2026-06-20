@@ -7,7 +7,14 @@ describe("README gates", () => {
 
     expect(readme).toContain("Codex");
     expect(readme).toContain("Claude Code");
-    expect(readme).toContain("Non-goals for v1");
+    expect(readme).toContain("Getting Started");
+    expect(readme).toContain("Run Codex");
+    expect(readme).toContain("--harness codex");
+    expect(readme).toContain("Run Claude Code");
+    expect(readme).toContain("--harness claude_code");
+    expect(readme).toContain("Roadmap Scope");
+    expect(readme).toContain("Implemented in v1");
+    expect(readme).toContain("Future phases");
     expect(readme).toContain("Cursor, OpenCode, and Pi adapters");
   });
 
