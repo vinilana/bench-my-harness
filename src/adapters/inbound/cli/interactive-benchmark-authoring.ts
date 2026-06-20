@@ -21,6 +21,11 @@ export interface InteractiveBenchmarkAuthoringOptions {
   readonly stdin?: string;
   readonly stdout?: (chunk: string) => void;
   readonly question?: (label: string) => string | Promise<string>;
+  readonly generateCommands?: (repoUrlOrPath: string) => Promise<{
+    readonly setupCommands: readonly string[];
+    readonly testCommands: readonly string[];
+  }>;
+  readonly isLocalRepoPath?: (value: string) => boolean;
 }
 
 export class InteractiveBenchmarkAuthoring {
@@ -51,8 +56,9 @@ export class InteractiveBenchmarkAuthoring {
     if (source === "repo") {
       repoUrl = await this.required("Repo URL or path");
       commit = optional(await this.ask("Commit"));
-      setupCommands = parseList(await this.ask("Setup commands"));
-      testCommands = parseList(await this.ask("Test commands"));
+      const generatedCommands = await this.tryGenerateCommands(repoUrl);
+      setupCommands = generatedCommands?.setupCommands ?? parseList(await this.ask("Setup commands"));
+      testCommands = generatedCommands?.testCommands ?? parseList(await this.ask("Test commands"));
     } else if (source === "fixture") {
       fixturePath = await this.required("Fixture path");
       setupCommands = parseList(await this.ask("Setup commands"));
@@ -124,6 +130,27 @@ export class InteractiveBenchmarkAuthoring {
     const answer = this.answers[this.index];
     this.index += 1;
     return answer;
+  }
+
+  private async tryGenerateCommands(repoUrlOrPath: string): Promise<{
+    readonly setupCommands: readonly string[];
+    readonly testCommands: readonly string[];
+  } | undefined> {
+    if (!this.options.generateCommands || !this.options.isLocalRepoPath?.(repoUrlOrPath)) {
+      return undefined;
+    }
+
+    const answer = optional(await this.ask("Detect setup and validation commands from this project? (Y/n)"));
+
+    if (answer === undefined || answer.toLowerCase() === "y" || answer.toLowerCase() === "yes") {
+      return this.options.generateCommands(repoUrlOrPath);
+    }
+
+    if (answer.toLowerCase() === "n" || answer.toLowerCase() === "no") {
+      return undefined;
+    }
+
+    throw new Error("detect setup and validation commands answer must be y or n");
   }
 }
 

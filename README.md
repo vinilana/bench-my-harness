@@ -45,6 +45,7 @@ BMH is being built in phases. The current v1 foundation is focused on a local, r
 - Public leaderboard.
 - Fine-tuning or model training workflows.
 - Manual interactive benchmark mode as exploratory evidence, not as a comparable benchmark result.
+- Project command generation for Python, Rust, Go, .NET, and Java/Kotlin repositories.
 - UI/dashboard, CSV export, and CI gates.
 
 ## Stack
@@ -227,6 +228,21 @@ node ./dist/adapters/inbound/cli/main.js init benchmark --template \
   --test-command "npm test" \
   --output benchmarks/local.benchmark.json
 ```
+
+BMH can also generate setup and validation commands for supported local projects:
+
+```bash
+node ./dist/adapters/inbound/cli/main.js init benchmark --template \
+  --id local-001 \
+  --name "Local benchmark" \
+  --category feature \
+  --repo-path . \
+  --detect-commands \
+  --prompt "Do the work." \
+  --output benchmarks/local.benchmark.json
+```
+
+The generated benchmark stores explicit commands such as `npm install`, `npm test`, and `npm run typecheck`. Command generation is currently focused on Node.js projects. Roadmap support includes Python, Rust, Go, .NET, and Java/Kotlin project detection.
 
 For larger prompts, reference a Markdown prompt file instead of inline text:
 

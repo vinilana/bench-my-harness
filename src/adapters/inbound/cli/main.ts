@@ -16,11 +16,13 @@ import { FilesystemWorkspaceProvisioner } from "../../outbound/filesystem/filesy
 import { ProcessHarnessRunner } from "../../outbound/harnesses/process-harness-runner.js";
 import { ProcessValidationRunner } from "../../outbound/harnesses/process-validation-runner.js";
 import { FilesystemBenchmarkTemplateWriter } from "../../outbound/filesystem/filesystem-benchmark-template-writer.js";
+import { FilesystemProjectCommandDetector } from "../../outbound/filesystem/filesystem-project-command-detector.js";
 import { FilesystemReportStore } from "../../outbound/storage/filesystem-report-store.js";
 import { FilesystemPromptFileReader } from "../../outbound/filesystem/filesystem-prompt-file-reader.js";
 import { BenchmarkSchema, type Benchmark } from "../../../domain/benchmark/benchmark-schema.js";
 import type { HarnessCommand } from "../../../domain/harnesses/harness-profile.js";
 import { ResolveBenchmarkPromptUseCase } from "../../../application/use-cases/resolve-benchmark-prompt.js";
+import { GenerateProjectCommandsUseCase } from "../../../application/use-cases/generate-project-commands.js";
 import { runHookCapture, type HookCaptureProvider } from "./hook-capture.js";
 import {
   InteractiveBenchmarkAuthoring,
@@ -168,6 +170,7 @@ export function buildProgram(context: CliContext): Command {
     .option("--repo-url <url>", "source repository URL")
     .option("--repo-path <path>", "local source repository path")
     .option("--fixture-path <path>", "fixture workspace path")
+    .option("--detect-commands", "detect setup and validation commands from --repo-path", false)
     .option("--commit <commit>", "repository commit")
     .option("--setup-command <command>", "setup command", collectOptionValue, [])
     .option("--test-command <command>", "test command", collectOptionValue, [])
@@ -183,7 +186,7 @@ export function buildProgram(context: CliContext): Command {
     .action(async (options: InitBenchmarkOptions) => {
       const command =
         options.template || hasNonInteractiveAuthoringOptions(options)
-          ? commandFromTemplateOptions(options, context.cwd)
+          ? await commandFromTemplateOptions(options, context.cwd)
           : normalizeInteractiveCommand(await collectInteractiveBenchmarkCommand(context), context.cwd);
 
       const benchmark = new CreateBenchmarkTemplateUseCase().execute(command);
@@ -356,6 +359,7 @@ interface InitBenchmarkOptions {
   readonly repoUrl?: string;
   readonly repoPath?: string;
   readonly fixturePath?: string;
+  readonly detectCommands?: boolean;
   readonly commit?: string;
   readonly setupCommand?: readonly string[];
   readonly testCommand?: readonly string[];
@@ -370,13 +374,15 @@ interface InitBenchmarkOptions {
   readonly force?: boolean;
 }
 
-function commandFromTemplateOptions(options: InitBenchmarkOptions, cwd: string): BenchmarkAuthoringCommand {
+async function commandFromTemplateOptions(options: InitBenchmarkOptions, cwd: string): Promise<BenchmarkAuthoringCommand> {
   const sourceCount =
     Number(options.repoUrl !== undefined) + Number(options.repoPath !== undefined) + Number(options.fixturePath !== undefined);
 
   if (sourceCount > 1) {
     throw new Error("init benchmark requires only one of --repo-url, --repo-path, or --fixture-path");
   }
+
+  const generatedCommands = await generatedCommandsFromTemplateOptions(options, cwd);
 
   return {
     id: requiredOption(options.id, "--id"),
@@ -385,8 +391,8 @@ function commandFromTemplateOptions(options: InitBenchmarkOptions, cwd: string):
     repoUrl: options.repoPath === undefined ? options.repoUrl : repoPathToFileUrl(cwd, options.repoPath),
     fixturePath: options.fixturePath,
     commit: options.commit,
-    setupCommands: options.setupCommand ?? [],
-    testCommands: options.testCommand ?? [],
+    setupCommands: generatedCommands?.setupCommands ?? options.setupCommand ?? [],
+    testCommands: generatedCommands?.testCommands ?? options.testCommand ?? [],
     promptText: options.prompt,
     promptFile: options.promptFile,
     constraints: options.constraint ?? [],
@@ -407,6 +413,7 @@ function hasNonInteractiveAuthoringOptions(options: InitBenchmarkOptions): boole
     options.repoPath !== undefined ||
     options.fixturePath !== undefined ||
     options.commit !== undefined ||
+    options.detectCommands === true ||
     hasEntries(options.setupCommand) ||
     hasEntries(options.testCommand) ||
     options.prompt !== undefined ||
@@ -418,6 +425,25 @@ function hasNonInteractiveAuthoringOptions(options: InitBenchmarkOptions): boole
     hasEntries(options.forbiddenFileChanged) ||
     hasEntries(options.semanticRequirement)
   );
+}
+
+async function generatedCommandsFromTemplateOptions(
+  options: InitBenchmarkOptions,
+  cwd: string
+): Promise<{ readonly setupCommands: readonly string[]; readonly testCommands: readonly string[] } | undefined> {
+  if (options.detectCommands !== true) {
+    return undefined;
+  }
+
+  if (options.repoPath === undefined || options.repoUrl !== undefined || options.fixturePath !== undefined) {
+    throw new Error("init benchmark --detect-commands requires --repo-path and does not support --repo-url or --fixture-path");
+  }
+
+  if (hasEntries(options.setupCommand) || hasEntries(options.testCommand)) {
+    throw new Error("init benchmark --detect-commands cannot be used with manual setup or test commands");
+  }
+
+  return generateProjectCommands(cwd, options.repoPath);
 }
 
 function normalizeInteractiveCommand(command: BenchmarkAuthoringCommand, cwd: string): BenchmarkAuthoringCommand {
@@ -458,7 +484,9 @@ function hasEntries(values: readonly unknown[] | undefined): boolean {
 async function collectInteractiveBenchmarkCommand(context: CliContext): Promise<BenchmarkAuthoringCommand> {
   if (context.question) {
     return new InteractiveBenchmarkAuthoring({
-      question: context.question
+      question: context.question,
+      generateCommands: (repoPath) => generateProjectCommands(context.cwd, repoPath),
+      isLocalRepoPath
     }).collect();
   }
 
@@ -470,7 +498,9 @@ async function collectInteractiveBenchmarkCommand(context: CliContext): Promise<
 
     try {
       return await new InteractiveBenchmarkAuthoring({
-        question: (label) => readline.question(`${label}: `)
+        question: (label) => readline.question(`${label}: `),
+        generateCommands: (repoPath) => generateProjectCommands(context.cwd, repoPath),
+        isLocalRepoPath
       }).collect();
     } finally {
       readline.close();
@@ -479,8 +509,24 @@ async function collectInteractiveBenchmarkCommand(context: CliContext): Promise<
 
   return new InteractiveBenchmarkAuthoring({
     stdin: context.stdin,
-    stdout: context.stdout
+    stdout: context.stdout,
+    generateCommands: (repoPath) => generateProjectCommands(context.cwd, repoPath),
+    isLocalRepoPath
   }).collect();
+}
+
+async function generateProjectCommands(
+  cwd: string,
+  repoPath: string
+): Promise<{ readonly setupCommands: readonly string[]; readonly testCommands: readonly string[] }> {
+  const commands = await new GenerateProjectCommandsUseCase(new FilesystemProjectCommandDetector()).execute({
+    root: resolvePath(cwd, repoPath)
+  });
+
+  return {
+    setupCommands: commands.setupCommands,
+    testCommands: commands.validationCommands
+  };
 }
 
 async function readBenchmarkFile(path: string, cwd: string): Promise<{ benchmark: Benchmark; directory: string }> {

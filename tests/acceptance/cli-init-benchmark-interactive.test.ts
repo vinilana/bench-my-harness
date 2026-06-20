@@ -1,4 +1,4 @@
-import { mkdtemp, readFile } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -106,6 +106,7 @@ describe("CLI benchmark init interactive mode", () => {
         "repo",
         ".",
         "",
+        "n",
         "",
         "npm test",
         "text",
@@ -127,6 +128,81 @@ describe("CLI benchmark init interactive mode", () => {
       repo: {
         url: pathToFileURL(resolve(dir, ".")).href
       }
+    });
+  });
+
+  test("interactive mode accepts detected project commands for a local repo path", async () => {
+    const dir = await createNodeProject({
+      scripts: {
+        test: "vitest run",
+        typecheck: "tsc --noEmit"
+      }
+    });
+    const outputPath = join(dir, "interactive-detected.benchmark.json");
+
+    const exitCode = await runCli(["node", "bench-my-harness", "init", "benchmark", "--output", outputPath], {
+      stdin: interactiveAnswers([
+        "interactive-detected-001",
+        "Interactive detected",
+        "feature",
+        "repo",
+        ".",
+        "",
+        "y",
+        "text",
+        "Implement with detected commands.",
+        "",
+        "900",
+        "",
+        "",
+        "",
+        ""
+      ]),
+      cwd: dir,
+      ...createOutput()
+    });
+
+    const generated = BenchmarkSchema.parse(JSON.parse(await readFile(outputPath, "utf8")));
+    expect(exitCode).toBe(0);
+    expect(generated.repo).toMatchObject({
+      setup_commands: ["npm install"],
+      test_commands: ["npm test", "npm run typecheck"]
+    });
+  });
+
+  test("interactive mode can decline detected commands and enter manual commands", async () => {
+    const dir = await createNodeProject({ scripts: { test: "vitest run" } });
+    const outputPath = join(dir, "interactive-manual.benchmark.json");
+
+    const exitCode = await runCli(["node", "bench-my-harness", "init", "benchmark", "--output", outputPath], {
+      stdin: interactiveAnswers([
+        "interactive-manual-001",
+        "Interactive manual",
+        "feature",
+        "repo",
+        ".",
+        "",
+        "n",
+        "npm ci",
+        "npm run custom-check",
+        "text",
+        "Implement with manual commands.",
+        "",
+        "900",
+        "",
+        "",
+        "",
+        ""
+      ]),
+      cwd: dir,
+      ...createOutput()
+    });
+
+    const generated = BenchmarkSchema.parse(JSON.parse(await readFile(outputPath, "utf8")));
+    expect(exitCode).toBe(0);
+    expect(generated.repo).toMatchObject({
+      setup_commands: ["npm ci"],
+      test_commands: ["npm run custom-check"]
     });
   });
 
@@ -200,6 +276,13 @@ describe("CLI benchmark init interactive mode", () => {
 
 function interactiveAnswers(answers: string[]): string {
   return `${answers.join("\n")}\n`;
+}
+
+async function createNodeProject(input: { readonly scripts: Record<string, string> }): Promise<string> {
+  const root = await mkdtemp(join(tmpdir(), "bmh-cli-init-interactive-"));
+  await writeFile(join(root, "package.json"), JSON.stringify({ scripts: input.scripts }, null, 2), "utf8");
+  await writeFile(join(root, "package-lock.json"), "", "utf8");
+  return root;
 }
 
 function createOutput(): {
