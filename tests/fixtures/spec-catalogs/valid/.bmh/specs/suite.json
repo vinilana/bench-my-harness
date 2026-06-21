@@ -1,0 +1,19 @@
+{
+  "id": "core-regression-suite",
+  "name": "Core regression suite",
+  "version": "1.0.0",
+  "description": "Features previously implemented in this repository.",
+  "specs": [
+    {
+      "id": "login-validation",
+      "path": "features/login-validation/benchmark.json",
+      "tags": ["auth", "bugfix"]
+    }
+  ],
+  "defaults": {
+    "trials": 2,
+    "harnesses": ["codex", "claude_code"],
+    "workspace_root": ".bmh/workspaces",
+    "strict_telemetry": false
+  }
+}

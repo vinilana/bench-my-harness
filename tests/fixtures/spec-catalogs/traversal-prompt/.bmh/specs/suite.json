@@ -1,0 +1,11 @@
+{
+  "id": "bad-prompt-suite",
+  "name": "Bad prompt suite",
+  "version": "1.0.0",
+  "specs": [
+    {
+      "id": "escape-prompt",
+      "path": "features/escape-prompt/benchmark.json"
+    }
+  ]
+}

@@ -37,6 +37,9 @@ BMH is being built in phases. The current v1 foundation is focused on a local, r
 - Usage, metric, comparability, scoring, and report models with source/confidence.
 - JSON and Markdown report export with redaction by default.
 - Local HTTP ingest with HMAC, timestamp, nonce, provider, and payload-size checks.
+- Local `.bmh/specs` catalogs for benchmark suites built from feature specs.
+- CLI spec authoring, including backward Git draft generation and capped backfill.
+- Static redacted `report.html` generation for suite runs, with filters by harness, spec, tag, status, and comparability.
 
 ### Future phases
 
@@ -330,7 +333,100 @@ printf '{"hook_event_name":"PreToolUse","session_id":"debug","tool_name":"Bash"}
 
 Use `--provider claude_code` for Claude Code hook payloads.
 
-### 7. Render a report
+### 7. Create a local spec catalog
+
+For repository-specific benchmark suites, create a catalog under `.bmh/specs`:
+
+```bash
+node ./dist/adapters/inbound/cli/main.js specs init
+```
+
+This writes:
+
+```text
+.bmh/specs/suite.json
+```
+
+Create a feature spec from an explicit Markdown prompt:
+
+```bash
+node ./dist/adapters/inbound/cli/main.js specs create \
+  --id login-validation \
+  --name "Login validation" \
+  --category bugfix \
+  --repo-path . \
+  --base-ref <commit-before-feature> \
+  --golden-ref <commit-after-feature> \
+  --prompt-file ./docs/login-validation.md \
+  --test-command "npm test" \
+  --include-in-suite
+```
+
+This writes:
+
+```text
+.bmh/specs/features/login-validation/spec.md
+.bmh/specs/features/login-validation/benchmark.json
+```
+
+### 8. Create backward specs from Git history
+
+For features that already exist, create a review-needed backward draft from Git evidence:
+
+```bash
+node ./dist/adapters/inbound/cli/main.js specs create --from-git \
+  --id login-validation \
+  --name "Login validation" \
+  --category bugfix \
+  --repo-path . \
+  --base-ref <commit-before-feature> \
+  --golden-ref <commit-after-feature> \
+  --test-command "npm test" \
+  --include-in-suite
+```
+
+BMH records changed files and commit evidence, but marks the generated spec as a draft with `review_status = "needs_human_review"`.
+
+To create multiple drafts from a commit range:
+
+```bash
+node ./dist/adapters/inbound/cli/main.js specs backfill \
+  --repo-path . \
+  --range main~25..main
+```
+
+`specs backfill` creates at most `25` drafts by default. Override this with `--limit <count>`. Drafts are not added to `suite.json` unless `--include-in-suite` is provided.
+
+### 9. Validate and run a spec suite locally
+
+Validate the catalog:
+
+```bash
+node ./dist/adapters/inbound/cli/main.js specs validate
+```
+
+Run the suite with fake harness execution:
+
+```bash
+node ./dist/adapters/inbound/cli/main.js specs run \
+  --dry-run \
+  --run-id local_suite_001 \
+  --harness codex \
+  --harness claude_code \
+  --trials 2
+```
+
+Dry-run suite execution writes:
+
+```text
+.bmh/runs/local_suite_001/results.json
+.bmh/runs/local_suite_001/report.html
+.bmh/runs/local_suite_001/specs/<spec-id>/<harness>/<trial-id>/result.json
+```
+
+The first suite runner implementation is intended for deterministic local validation and fake harness tests. Real Codex and Claude Code suite execution remains an explicit local smoke workflow until the real non-interactive harness commands are finalized.
+
+### 10. Render a report
 
 Render a report JSON file directly:
 
@@ -344,6 +440,21 @@ Or render a report stored at `.bmh/runs/<run-id>/report.json`:
 node ./dist/adapters/inbound/cli/main.js report \
   --run-id run_codex_001 \
   --store-root .bmh/runs
+```
+
+Render or re-render a suite HTML report:
+
+```bash
+node ./dist/adapters/inbound/cli/main.js report \
+  --run-id local_suite_001 \
+  --store-root .bmh/runs \
+  --format html
+```
+
+The HTML file is written to:
+
+```text
+.bmh/runs/local_suite_001/report.html
 ```
 
 ## Commands
@@ -360,12 +471,19 @@ Current CLI surface:
 
 ```bash
 bench-my-harness hook-capture --provider codex --event PreToolUse
+bench-my-harness specs init
+bench-my-harness specs create --id login-validation --name "Login validation" --category bugfix --repo-path . --base-ref <base> --golden-ref <golden> --prompt-file spec.md --include-in-suite
+bench-my-harness specs create --from-git --id login-validation --name "Login validation" --category bugfix --repo-path . --base-ref <base> --golden-ref <golden>
+bench-my-harness specs backfill --repo-path . --range main~25..main
+bench-my-harness specs validate
+bench-my-harness specs run --dry-run --run-id local_suite_001 --harness codex --harness claude_code
 bench-my-harness validate benchmark benchmark.json
 bench-my-harness run --benchmark benchmark.json --harness codex --dry-run
 bench-my-harness run --benchmark benchmark.json --harness codex --harness-command-json '{"executable":"codex","args":[]}' --run-validation
 bench-my-harness run --benchmark benchmark.json --harness claude_code --harness-command-json '{"executable":"claude","args":[]}' --run-validation
 bench-my-harness report --input report.json
 bench-my-harness report --run-id run_123 --store-root .bmh/runs
+bench-my-harness report --run-id local_suite_001 --store-root .bmh/runs --format html
 ```
 
 The v1 CLI is JSON-only v1 for benchmark files. YAML benchmark files are rejected by `validate benchmark` and `run`; use `.json` benchmark fixtures until YAML parsing is implemented in a later version.
@@ -395,5 +513,6 @@ The implementation is not acceptable until:
 6. Implement benchmark runner with fake harness tests.
 7. Implement usage capture interfaces and best-effort collectors.
 8. Generate reports.
-9. Add opt-in local-only real-harness smoke tests.
-10. Revisit Cursor, OpenCode, and Pi adapters.
+9. Add local spec catalogs and static HTML suite reports.
+10. Add opt-in local-only real-harness smoke tests.
+11. Revisit Cursor, OpenCode, and Pi adapters.

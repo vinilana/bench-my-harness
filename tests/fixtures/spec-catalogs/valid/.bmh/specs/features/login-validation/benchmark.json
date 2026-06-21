@@ -1,0 +1,44 @@
+{
+  "id": "login-validation",
+  "name": "Login validation",
+  "version": "1.0.0",
+  "category": "bugfix",
+  "difficulty": "medium",
+  "tags": ["auth", "validation"],
+  "repo": {
+    "url": "file:///workspace/product",
+    "base_ref": "1111111",
+    "golden_ref": "2222222",
+    "setup_commands": ["npm install"],
+    "test_commands": ["npm test"]
+  },
+  "prompt": {
+    "file": "spec.md",
+    "constraints": ["Keep existing public API behavior."]
+  },
+  "expected_output": {
+    "tests_must_pass": true,
+    "required_files_changed": ["src/auth/validation.ts"],
+    "forbidden_files_changed": ["package.json"],
+    "semantic_requirements": ["Invalid emails without a domain are rejected."]
+  },
+  "limits": {
+    "timeout_seconds": 900,
+    "max_cost_usd": 5,
+    "max_input_tokens": 200000,
+    "max_output_tokens": 50000
+  },
+  "evaluation": {
+    "scoring": {
+      "tests": 0.5,
+      "semantic_requirements": 0.25,
+      "diff_quality": 0.1,
+      "cost_efficiency": 0.1,
+      "constraints": 0.05
+    }
+  },
+  "metadata": {
+    "created_by": "benchmark-team",
+    "source": "previously_implemented_feature"
+  }
+}

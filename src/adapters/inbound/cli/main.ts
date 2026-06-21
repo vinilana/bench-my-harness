@@ -18,11 +18,21 @@ import { ProcessValidationRunner } from "../../outbound/harnesses/process-valida
 import { FilesystemBenchmarkTemplateWriter } from "../../outbound/filesystem/filesystem-benchmark-template-writer.js";
 import { FilesystemProjectCommandDetector } from "../../outbound/filesystem/filesystem-project-command-detector.js";
 import { FilesystemReportStore } from "../../outbound/storage/filesystem-report-store.js";
+import { FilesystemSuiteResultStore } from "../../outbound/storage/filesystem-suite-result-store.js";
+import { FilesystemHtmlReportStore } from "../../outbound/storage/filesystem-html-report-store.js";
+import { FilesystemSpecCatalogStore } from "../../outbound/filesystem/filesystem-spec-catalog-store.js";
+import { ProcessGitHistoryInspector } from "../../outbound/git/process-git-history-inspector.js";
 import { FilesystemPromptFileReader } from "../../outbound/filesystem/filesystem-prompt-file-reader.js";
 import { BenchmarkSchema, type Benchmark } from "../../../domain/benchmark/benchmark-schema.js";
 import type { HarnessCommand } from "../../../domain/harnesses/harness-profile.js";
 import { ResolveBenchmarkPromptUseCase } from "../../../application/use-cases/resolve-benchmark-prompt.js";
 import { GenerateProjectCommandsUseCase } from "../../../application/use-cases/generate-project-commands.js";
+import { CreateSpecCatalogUseCase } from "../../../application/use-cases/create-spec-catalog.js";
+import { CreateFeatureSpecUseCase } from "../../../application/use-cases/create-feature-spec.js";
+import { CreateBackwardSpecDraftUseCase } from "../../../application/use-cases/create-backward-spec-draft.js";
+import { LoadSpecCatalogUseCase } from "../../../application/use-cases/load-spec-catalog.js";
+import { RunSpecSuiteUseCase } from "../../../application/use-cases/run-spec-suite.js";
+import { renderSuiteReportHtml } from "../../../domain/reports/suite-report.js";
 import { runHookCapture, type HookCaptureProvider } from "./hook-capture.js";
 import {
   InteractiveBenchmarkAuthoring,
@@ -285,20 +295,223 @@ export function buildProgram(context: CliContext): Command {
       }
     });
 
+  const specs = program.command("specs").description("Manage and run spec catalog benchmarks.");
+
+  specs
+    .command("init")
+    .description("Create .bmh/specs/suite.json.")
+    .option("--catalog-root <path>", "spec catalog root", ".bmh/specs")
+    .option("--id <id>", "suite id")
+    .option("--name <name>", "suite name")
+    .option("--force", "overwrite suite.json", false)
+    .action(async (options: SpecsInitOptions) => {
+      const catalogRoot = resolvePath(context.cwd, options.catalogRoot ?? ".bmh/specs");
+      const catalog = await new CreateSpecCatalogUseCase(new FilesystemSpecCatalogStore()).execute({
+        catalogRoot,
+        id: options.id,
+        name: options.name,
+        force: options.force ?? false
+      });
+
+      context.stdout(`spec catalog initialized: ${resolvePath(catalogRoot, "suite.json")}\n`);
+    });
+
+  specs
+    .command("create")
+    .description("Create a feature spec in .bmh/specs.")
+    .option("--catalog-root <path>", "spec catalog root", ".bmh/specs")
+    .option("--id <id>", "spec id")
+    .option("--name <name>", "spec name")
+    .option("--category <category>", "spec category")
+    .option("--difficulty <difficulty>", "spec difficulty")
+    .option("--repo-path <path>", "local repository path", ".")
+    .option("--base-ref <ref>", "base git ref")
+    .option("--golden-ref <ref>", "golden git ref")
+    .option("--prompt-file <path>", "Markdown prompt/spec file to copy into the catalog")
+    .option("--from-git", "create a backward spec draft from git evidence", false)
+    .option("--setup-command <command>", "setup command", collectOptionValue, [])
+    .option("--test-command <command>", "validation command", collectOptionValue, [])
+    .option("--tag <tag>", "spec tag", collectOptionValue, [])
+    .option("--include-in-suite", "add the spec to suite.json", false)
+    .option("--force", "overwrite generated spec files", false)
+    .action(async (options: SpecsCreateOptions) => {
+      const catalogRoot = resolvePath(context.cwd, options.catalogRoot ?? ".bmh/specs");
+      const repoPath = resolvePath(context.cwd, options.repoPath ?? ".");
+      const repoUrl = repoPathToFileUrl(context.cwd, options.repoPath ?? ".");
+
+      if (options.fromGit === true) {
+        const draft = await new CreateBackwardSpecDraftUseCase({
+          store: new FilesystemSpecCatalogStore(),
+          gitHistory: new ProcessGitHistoryInspector()
+        }).execute({
+          catalogRoot,
+          repoPath,
+          repoUrl,
+          id: requiredOption(options.id, "--id"),
+          name: requiredOption(options.name, "--name"),
+          category: requiredOption(options.category, "--category"),
+          baseRef: requiredOption(options.baseRef, "--base-ref"),
+          goldenRef: requiredOption(options.goldenRef, "--golden-ref"),
+          setupCommands: options.setupCommand ?? [],
+          testCommands: options.testCommand ?? [],
+          includeInSuite: options.includeInSuite ?? false,
+          force: options.force ?? false
+        });
+
+        context.stdout(`backward git draft created: ${resolvePath(catalogRoot, draft.benchmarkPath)}\n`);
+        return;
+      }
+
+      const promptMarkdown = options.promptFile
+        ? await readFile(resolvePath(context.cwd, options.promptFile), "utf8")
+        : "# Task\n\nTODO: Describe the feature behavior to implement.\n";
+      const draft = await new CreateFeatureSpecUseCase(new FilesystemSpecCatalogStore()).execute({
+        catalogRoot,
+        repoUrl,
+        id: requiredOption(options.id, "--id"),
+        name: requiredOption(options.name, "--name"),
+        category: requiredOption(options.category, "--category"),
+        difficulty: options.difficulty,
+        baseRef: options.baseRef,
+        goldenRef: options.goldenRef,
+        setupCommands: options.setupCommand ?? [],
+        testCommands: options.testCommand ?? [],
+        promptMarkdown,
+        tags: options.tag ?? [],
+        metadata: {
+          source: "manual_cli",
+          source_prompt_file: options.promptFile
+        },
+        includeInSuite: options.includeInSuite ?? false,
+        force: options.force ?? false
+      });
+
+      context.stdout(`spec created: ${resolvePath(catalogRoot, draft.benchmarkPath)}\n`);
+    });
+
+  specs
+    .command("backfill")
+    .description("Create backward spec drafts from local git history.")
+    .option("--catalog-root <path>", "spec catalog root", ".bmh/specs")
+    .option("--repo-path <path>", "local repository path", ".")
+    .requiredOption("--range <range>", "git revision range")
+    .option("--limit <count>", "maximum draft specs to create", parsePositiveInt)
+    .option("--category <category>", "generated spec category", "feature")
+    .option("--include-in-suite", "add generated specs to suite.json", false)
+    .option("--force", "overwrite generated spec files", false)
+    .action(async (options: SpecsBackfillOptions) => {
+      const repoPath = resolvePath(context.cwd, options.repoPath ?? ".");
+      const drafts = await new CreateBackwardSpecDraftUseCase({
+        store: new FilesystemSpecCatalogStore(),
+        gitHistory: new ProcessGitHistoryInspector()
+      }).backfill({
+        catalogRoot: resolvePath(context.cwd, options.catalogRoot ?? ".bmh/specs"),
+        repoPath,
+        repoUrl: repoPathToFileUrl(context.cwd, options.repoPath ?? "."),
+        range: options.range,
+        limit: options.limit,
+        category: options.category,
+        includeInSuite: options.includeInSuite ?? false,
+        force: options.force ?? false
+      });
+
+      context.stdout(`backfill drafts created: ${drafts.length}\n`);
+    });
+
+  specs
+    .command("validate")
+    .description("Validate a spec catalog.")
+    .option("--catalog-root <path>", "spec catalog root", ".bmh/specs")
+    .action(async (options: SpecsCatalogOptions) => {
+      try {
+        const loaded = await new LoadSpecCatalogUseCase(new FilesystemSpecCatalogStore()).execute({
+          catalogRoot: resolvePath(context.cwd, options.catalogRoot ?? ".bmh/specs")
+        });
+        context.stdout(`spec catalog valid: ${loaded.catalog.id}@${loaded.catalog.version} (${loaded.specs.length} specs)\n`);
+      } catch (error) {
+        context.stderr(`spec catalog invalid: ${formatError(error)}\n`);
+        throw new CliExit(EX_USAGE, "spec catalog invalid");
+      }
+    });
+
+  specs
+    .command("run")
+    .description("Run a spec catalog suite.")
+    .option("--catalog-root <path>", "spec catalog root", ".bmh/specs")
+    .option("--store-root <path>", "suite result store root", ".bmh/runs")
+    .option("--workspace-root <path>", "root directory for trial workspace", ".bmh/workspaces")
+    .option("--run-id <runId>", "run id", defaultRunId())
+    .option("--harness <harness>", "harness: codex or claude_code", collectOptionValue, [])
+    .option("--spec <spec>", "spec id", collectOptionValue, [])
+    .option("--tag <tag>", "tag", collectOptionValue, [])
+    .option("--trials <count>", "trial count", parsePositiveInt)
+    .option("--dry-run", "use a fake harness runner", false)
+    .action(async (options: SpecsRunOptions) => {
+      const loaded = await new LoadSpecCatalogUseCase(new FilesystemSpecCatalogStore()).execute({
+        catalogRoot: resolvePath(context.cwd, options.catalogRoot ?? ".bmh/specs")
+      });
+      const harnessOptions = options.harness ?? [];
+      const harnesses = hasEntries(harnessOptions) ? harnessOptions.map(parseProvider) : undefined;
+
+      if (options.dryRun !== true) {
+        context.stderr("spec suite real harness execution is not configured for this CLI build; rerun with --dry-run\n");
+        throw new CliExit(EX_CONFIG, "spec suite real harness execution is not configured");
+      }
+
+      const runner = new BenchmarkRunner({
+        hookInstaller: new DryRunHookInstaller(),
+        harnessRunner: new DryRunHarnessRunner(),
+        artifactCollector: new DryRunArtifactCollector(),
+        workspaceProvisioner: new FilesystemWorkspaceProvisioner(),
+        promptResolver: new ResolveBenchmarkPromptUseCase(new FilesystemPromptFileReader())
+      });
+      const report = await new RunSpecSuiteUseCase(new FilesystemSuiteResultStore({
+        root: resolvePath(context.cwd, options.storeRoot ?? ".bmh/runs")
+      })).execute({
+        loadedCatalog: loaded,
+        runner,
+        runId: options.runId,
+        harnesses,
+        specIds: options.spec,
+        tags: options.tag,
+        trials: options.trials,
+        workspaceRoot: resolvePath(context.cwd, options.workspaceRoot ?? ".bmh/workspaces"),
+        catalogRoot: resolvePath(context.cwd, options.catalogRoot ?? ".bmh/specs")
+      });
+
+      context.stdout(`spec suite run complete: ${report.run_id} (${report.trial_count} trials)\n`);
+    });
+
   program
     .command("report")
     .description("Render a benchmark run report.")
     .option("--input <path>", "JSON report input")
     .option("--run-id <runId>", "run id to load from configured storage")
     .option("--store-root <path>", "local report store root", ".bmh/runs")
+    .option("--format <format>", "report format: text or html", "text")
     .action(async (options: ReportCommandOptions) => {
       if (options.input) {
         const report = await readJsonFile(options.input, context.cwd);
-        context.stdout(renderReport(report));
+        context.stdout(options.format === "html" ? renderSuiteReportHtml(report as never) : renderReport(report));
         return;
       }
 
       if (options.runId) {
+        if (options.format === "html") {
+          const storeRoot = resolvePath(context.cwd, options.storeRoot ?? ".bmh/runs");
+          const suiteReport = await new FilesystemSuiteResultStore({
+            root: storeRoot
+          }).findByRunId(options.runId);
+
+          if (suiteReport !== undefined) {
+            const reportPath = await new FilesystemHtmlReportStore({
+              root: storeRoot
+            }).save(suiteReport);
+            context.stdout(`HTML report written: ${reportPath.path}\n`);
+            return;
+          }
+        }
+
         const reportStore = new FilesystemReportStore({
           root: resolvePath(context.cwd, options.storeRoot ?? ".bmh/runs")
         });
@@ -348,6 +561,54 @@ interface ReportCommandOptions {
   readonly input?: string;
   readonly runId?: string;
   readonly storeRoot?: string;
+  readonly format?: string;
+}
+
+interface SpecsCatalogOptions {
+  readonly catalogRoot?: string;
+}
+
+interface SpecsInitOptions extends SpecsCatalogOptions {
+  readonly id?: string;
+  readonly name?: string;
+  readonly force?: boolean;
+}
+
+interface SpecsCreateOptions extends SpecsCatalogOptions {
+  readonly id?: string;
+  readonly name?: string;
+  readonly category?: string;
+  readonly difficulty?: string;
+  readonly repoPath?: string;
+  readonly baseRef?: string;
+  readonly goldenRef?: string;
+  readonly promptFile?: string;
+  readonly fromGit?: boolean;
+  readonly setupCommand?: readonly string[];
+  readonly testCommand?: readonly string[];
+  readonly tag?: readonly string[];
+  readonly includeInSuite?: boolean;
+  readonly force?: boolean;
+}
+
+interface SpecsBackfillOptions extends SpecsCatalogOptions {
+  readonly repoPath?: string;
+  readonly range: string;
+  readonly limit?: number;
+  readonly category?: string;
+  readonly includeInSuite?: boolean;
+  readonly force?: boolean;
+}
+
+interface SpecsRunOptions extends SpecsCatalogOptions {
+  readonly storeRoot?: string;
+  readonly workspaceRoot?: string;
+  readonly runId: string;
+  readonly harness?: readonly string[];
+  readonly spec?: readonly string[];
+  readonly tag?: readonly string[];
+  readonly trials?: number;
+  readonly dryRun?: boolean;
 }
 
 interface InitBenchmarkOptions {

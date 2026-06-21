@@ -1,0 +1,11 @@
+{
+  "id": "bad-traversal-suite",
+  "name": "Bad traversal suite",
+  "version": "1.0.0",
+  "specs": [
+    {
+      "id": "escape",
+      "path": "../outside/benchmark.json"
+    }
+  ]
+}

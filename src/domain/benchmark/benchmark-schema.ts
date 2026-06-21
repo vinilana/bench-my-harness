@@ -8,6 +8,8 @@ const CommandListSchema = z.array(NonEmptyStringSchema);
 const RepoSchema = z.object({
   url: NonEmptyStringSchema,
   commit: NonEmptyStringSchema.optional(),
+  base_ref: NonEmptyStringSchema.optional(),
+  golden_ref: NonEmptyStringSchema.optional(),
   setup_commands: CommandListSchema.optional(),
   test_commands: CommandListSchema.optional()
 });
@@ -67,10 +69,48 @@ export const BenchmarkSchema = z.object({
   metadata: z.object({
     created_by: NonEmptyStringSchema.optional(),
     tags: z.array(NonEmptyStringSchema).optional()
-  }).optional()
+  }).catchall(z.unknown()).optional()
 }).refine((benchmark) => benchmark.repo !== undefined || benchmark.fixture !== undefined, {
   message: "Benchmark must define either repo or fixture",
   path: ["repo"]
 });
 
+export const SpecCatalogReferenceSchema = z.object({
+  id: NonEmptyStringSchema,
+  path: NonEmptyStringSchema,
+  tags: z.array(NonEmptyStringSchema).optional()
+}).superRefine((reference, context) => {
+  if (!isSafeCatalogRelativePath(reference.path)) {
+    context.addIssue({
+      code: "custom",
+      path: ["path"],
+      message: "spec path must be relative and must not escape .bmh/specs"
+    });
+  }
+});
+
+export const SpecCatalogSchema = z.object({
+  id: NonEmptyStringSchema,
+  name: NonEmptyStringSchema,
+  version: NonEmptyStringSchema,
+  description: NonEmptyStringSchema.optional(),
+  specs: z.array(SpecCatalogReferenceSchema),
+  defaults: z.object({
+    trials: z.number().int().positive().optional(),
+    harnesses: z.array(HarnessProviderSchema).optional(),
+    workspace_root: NonEmptyStringSchema.optional(),
+    strict_telemetry: z.boolean().optional()
+  }).optional()
+});
+
 export type Benchmark = z.infer<typeof BenchmarkSchema>;
+export type SpecCatalog = z.infer<typeof SpecCatalogSchema>;
+export type SpecCatalogReference = z.infer<typeof SpecCatalogReferenceSchema>;
+
+function isSafeCatalogRelativePath(path: string): boolean {
+  if (path.length === 0 || path.startsWith("/") || path.startsWith("\\") || /^[A-Za-z]:/.test(path)) {
+    return false;
+  }
+
+  return path.split(/[\\/]/).every((segment) => segment.length > 0 && segment !== "." && segment !== "..");
+}

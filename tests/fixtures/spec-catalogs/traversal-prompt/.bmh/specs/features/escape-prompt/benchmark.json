@@ -1,0 +1,24 @@
+{
+  "id": "escape-prompt",
+  "name": "Escape prompt",
+  "version": "1.0.0",
+  "category": "bugfix",
+  "repo": {
+    "url": "file:///workspace/product",
+    "base_ref": "1111111"
+  },
+  "prompt": {
+    "file": "../shared.md"
+  },
+  "expected_output": {
+    "tests_must_pass": true
+  },
+  "limits": {
+    "timeout_seconds": 900
+  },
+  "evaluation": {
+    "scoring": {
+      "tests": 1
+    }
+  }
+}
