@@ -6,6 +6,8 @@ This project follows semantic versioning during the v0 phase: minor versions may
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-06-21
+
 ### Changed
 
 - Renamed written spec catalog entries from `.bmh/specs/features/<id>` to `.bmh/specs/cases/<id>`.
@@ -13,6 +15,19 @@ This project follows semantic versioning during the v0 phase: minor versions may
 - Added guided benchmark categories with `other` as an explicit fallback.
 - Generated default benchmark ids and names when users do not provide custom values.
 - Updated generated Git prompts to avoid exposing commit refs and changed-file lists by default.
+
+### Fixed
+
+- Fixed bare `bmh add` so interactive catalog authoring creates a feature spec instead of falling through to benchmark init validation.
+
+### Verified
+
+- Automated verification:
+  - `npm test`: 72 test files, 275 tests passing.
+  - `npm run typecheck`: passing.
+  - `npm run build`: passing.
+- Packaging verification:
+  - `npm pack --dry-run`: package contents verified for `bench-my-harness@0.3.0`.
 
 ## [0.2.0] - 2026-06-21
 
