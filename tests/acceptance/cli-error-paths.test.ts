@@ -59,6 +59,7 @@ describe("CLI error paths", () => {
 
     const exitCode = await runCli(["node", "bench-my-harness", "add"], {
       ...runtime(cwd, output),
+      isTty: true,
       stdin: interactiveAnswers([
         "feature",
         "fixture",
@@ -77,137 +78,61 @@ describe("CLI error paths", () => {
     });
 
     expect(exitCode).not.toBe(0);
-    expect(output.stdout()).toContain("Source (repo or fixture):");
+    expect(output.stdout()).toContain("Source (repo|fixture) [repo]:");
     expect(output.stderr()).toContain("add interactive mode requires a repo source");
     expect(output.stderr()).not.toContain("benchmark init");
     await expect(stat(join(cwd, ".bmh", "specs"))).rejects.toThrow();
   });
 
-  test("benchmark init rejects mutually exclusive repository sources", async () => {
-    const cwd = await mkdtemp(join(tmpdir(), "bmh-cli-errors-init-source-"));
-    const output = createOutput();
-
-    const exitCode = await runCli(
-      [
-        "node",
-        "bench-my-harness",
-        "benchmark",
-        "init",
-        "--output",
-        "benchmark.json",
-        "--template",
-        "--repo-url",
-        "file:///tmp/repo",
-        "--repo-path",
-        "."
-      ],
-      runtime(cwd, output)
-    );
-
-    expect(exitCode).not.toBe(0);
-    expect(output.stderr()).toContain("benchmark init requires only one of --repo-url, --repo-path, or --fixture-path");
-    await expect(stat(join(cwd, "benchmark.json"))).rejects.toThrow();
-  });
-
-  test("benchmark init --detect-commands requires a local repo path", async () => {
-    const cwd = await mkdtemp(join(tmpdir(), "bmh-cli-errors-init-detect-path-"));
-    const output = createOutput();
-
-    const exitCode = await runCli(
-      ["node", "bench-my-harness", "benchmark", "init", "--output", "benchmark.json", "--template", "--detect-commands"],
-      runtime(cwd, output)
-    );
-
-    expect(exitCode).not.toBe(0);
-    expect(output.stderr()).toContain("benchmark init --detect-commands requires --repo-path");
-    await expect(stat(join(cwd, "benchmark.json"))).rejects.toThrow();
-  });
-
-  test("benchmark init --detect-commands rejects remote or fixture sources", async () => {
-    const cwd = await mkdtemp(join(tmpdir(), "bmh-cli-errors-init-detect-source-"));
-    const output = createOutput();
-
-    const cases: string[][] = [
-      ["--repo-url", "file:///tmp/repo"],
-      ["--fixture-path", "fixtures/login"]
-    ];
-
-    for (const sourceArgs of cases) {
-      const exitCode = await runCli(
-        [
-          "node",
-          "bench-my-harness",
-          "benchmark",
-          "init",
-          "--output",
-          "benchmark.json",
-          "--template",
-          "--detect-commands",
-          ...sourceArgs
-        ],
-        runtime(cwd, output)
-      );
-
-      expect(exitCode).not.toBe(0);
-      expect(output.stderr()).toContain(
-        "benchmark init --detect-commands requires --repo-path and does not support --repo-url or --fixture-path"
-      );
-    }
-
-    await expect(stat(join(cwd, "benchmark.json"))).rejects.toThrow();
-  });
-
-  test("benchmark init --detect-commands rejects manual commands", async () => {
+  test("removed pre-consolidation commands are unknown", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "bmh-cli-errors-init-detect-manual-"));
     const output = createOutput();
+    const removedCommands = [
+      ["benchmark"],
+      ["benchmark", "init"],
+      ["benchmark", "validate", "benchmark.json"],
+      ["benchmark", "run"],
+      ["benchmark", "--help"],
+      ["smoke"],
+      ["smoke", "--help"],
+      ["import", "docs/specs/*.md"],
+      ["import", "--help"],
+      ["doctor"]
+    ];
 
-    const exitCode = await runCli(
-      [
-        "node",
-        "bench-my-harness",
-        "benchmark",
-        "init",
-        "--output",
-        "benchmark.json",
-        "--template",
-        "--detect-commands",
-        "--repo-path",
-        ".",
-        "--test-command",
-        "npm test"
-      ],
-      runtime(cwd, output)
-    );
+    for (const command of removedCommands) {
+      const exitCode = await runCli(["node", "bench-my-harness", ...command], runtime(cwd, output));
 
-    expect(exitCode).not.toBe(0);
-    expect(output.stderr()).toContain("benchmark init --detect-commands cannot be used with manual setup or test commands");
-    await expect(stat(join(cwd, "benchmark.json"))).rejects.toThrow();
+      expect(exitCode).not.toBe(0);
+    }
+
+    expect(output.stderr()).toContain("unknown command");
   });
 
-  test("benchmark validate rejects YAML benchmarks with a clear message", async () => {
+  test("check rejects YAML benchmarks with a clear message", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "bmh-cli-errors-validate-yaml-"));
     const output = createOutput();
     await writeFile(join(cwd, "benchmark.yml"), "id: yaml\n", "utf8");
 
-    const exitCode = await runCli(["node", "bench-my-harness", "benchmark", "validate", "benchmark.yml"], runtime(cwd, output));
+    const exitCode = await runCli(["node", "bench-my-harness", "check", "benchmark.yml"], runtime(cwd, output));
 
     expect(exitCode).not.toBe(0);
     expect(output.stdout()).toBe("");
-    expect(output.stderr()).toContain("benchmark invalid:");
+    expect(output.stderr()).toContain("check invalid:");
     expect(output.stderr()).toContain("YAML benchmarks are not supported");
   });
 
-  test("benchmark run rejects malformed harness command JSON values", async () => {
+  test("run --benchmark rejects malformed harness command JSON values", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "bmh-cli-errors-benchmark-run-json-"));
     const output = createOutput();
     const benchmarkPath = resolve("tests/fixtures/benchmarks/login-validation.benchmark.json");
 
     const cases: Array<{ json: string; message: string }> = [
-      { json: "[]", message: "benchmark run --harness-command-json must be an object" },
-      { json: "{\"args\":[]}", message: "benchmark run --harness-command-json requires executable" },
+      { json: "[]", message: "run --benchmark --harness-command-json must be an object" },
+      { json: "{\"args\":[]}", message: "run --benchmark --harness-command-json requires executable" },
       {
         json: "{\"executable\":\"node\",\"args\":[1]}",
-        message: "benchmark run --harness-command-json args must be an array of strings"
+        message: "run --benchmark --harness-command-json args must be an array of strings"
       }
     ];
 
@@ -216,9 +141,7 @@ describe("CLI error paths", () => {
         [
           "node",
           "bench-my-harness",
-          "benchmark",
-          "run",
-          "--benchmark",
+          "run", "--benchmark",
           benchmarkPath,
           "--harness",
           "codex",
@@ -235,7 +158,7 @@ describe("CLI error paths", () => {
     }
   });
 
-  test("benchmark run reports a missing harness executable clearly", async () => {
+  test("run --benchmark reports a missing harness executable clearly", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "bmh-cli-errors-benchmark-run-missing-"));
     const output = createOutput();
     const benchmarkPath = resolve("tests/fixtures/benchmarks/login-validation.benchmark.json");
@@ -244,9 +167,7 @@ describe("CLI error paths", () => {
       [
         "node",
         "bench-my-harness",
-        "benchmark",
-        "run",
-        "--benchmark",
+        "run", "--benchmark",
         benchmarkPath,
         "--harness",
         "codex",
@@ -265,7 +186,7 @@ describe("CLI error paths", () => {
     expect(output.stderr()).toContain("definitely-not-bmh-harness");
   });
 
-  test("benchmark run does not echo arbitrary process stderr on failure", async () => {
+  test("run --benchmark does not echo arbitrary process stderr on failure", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "bmh-cli-errors-benchmark-run-secret-stderr-"));
     const output = createOutput();
     const benchmarkPath = resolve("tests/fixtures/benchmarks/login-validation.benchmark.json");
@@ -280,9 +201,7 @@ describe("CLI error paths", () => {
       [
         "node",
         "bench-my-harness",
-        "benchmark",
-        "run",
-        "--benchmark",
+        "run", "--benchmark",
         benchmarkPath,
         "--harness",
         "codex",
@@ -301,19 +220,19 @@ describe("CLI error paths", () => {
     expect(`${output.stdout()}${output.stderr()}`).not.toContain("OPENAI_API_KEY=");
   });
 
-  test("import rejects globs that match no prompt files", async () => {
+  test("add rejects globs that match no prompt files", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "bmh-cli-errors-import-glob-"));
     const output = createOutput();
     await writeConfiguredSuite(cwd);
 
     const exitCode = await runCli(
-      ["node", "bench-my-harness", "import", "docs/specs/*.md", "--base-ref", "base", "--golden-ref", "HEAD"],
+      ["node", "bench-my-harness", "add", "docs/specs/*.md", "--base-ref", "base", "--golden-ref", "HEAD"],
       runtime(cwd, output)
     );
 
     expect(exitCode).not.toBe(0);
     expect(output.stdout()).toBe("");
-    expect(output.stderr()).toContain("import prompt file pattern matched no files: docs/specs/*.md");
+    expect(output.stderr()).toContain("add prompt file pattern matched no files: docs/specs/*.md");
     const suite = JSON.parse(await readFile(join(cwd, ".bmh", "specs", "suite.json"), "utf8")) as { specs: unknown[] };
     expect(suite.specs).toEqual([]);
   });

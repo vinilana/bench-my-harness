@@ -7,7 +7,7 @@ describe("benchmark format", () => {
     const output = createOutput();
 
     const exitCode = await runCli(
-      ["node", "bench-my-harness", "benchmark", "validate", "tests/fixtures/benchmarks/login-validation.benchmark.json"],
+      ["node", "bench-my-harness", "check", "tests/fixtures/benchmarks/login-validation.benchmark.json"],
       { stdout: output.stdout, stderr: output.stderr }
     );
 
@@ -20,13 +20,13 @@ describe("benchmark format", () => {
     const output = createOutput();
 
     const exitCode = await runCli(
-      ["node", "bench-my-harness", "benchmark", "validate", "tests/fixtures/benchmarks/login-validation.benchmark.yml"],
+      ["node", "bench-my-harness", "check", "tests/fixtures/benchmarks/login-validation.benchmark.yml"],
       { stdout: output.stdout, stderr: output.stderr }
     );
 
     expect(exitCode).toBe(1);
     expect(output.stdout()).toBe("");
-    expect(output.stderr()).toContain("benchmark invalid: YAML benchmarks are not supported by this build; provide JSON");
+    expect(output.stderr()).toContain("check invalid: YAML benchmarks are not supported by this build; provide JSON");
   });
 
   test("run rejects YAML benchmark fixtures before harness execution", async () => {
@@ -35,7 +35,7 @@ describe("benchmark format", () => {
     const exitCode = await runCli(
       [
         "node",
-        "bench-my-harness", "benchmark", "run", "--benchmark",
+        "bench-my-harness", "run", "--benchmark",
         "tests/fixtures/benchmarks/login-validation.benchmark.yml",
         "--harness",
         "codex",

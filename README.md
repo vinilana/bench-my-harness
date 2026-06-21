@@ -39,7 +39,7 @@ Bench My Harness (BMH) runs the same coding task against different agentic harne
 
 ### Getting Started
 
-Get to a report in under a minute — no Codex or Claude Code credentials required. The `smoke` command runs a one-trial suite against a built-in fake harness.
+Get to a report in under a minute — no Codex or Claude Code credentials required. The `run --dry-run` command runs a one-trial suite against a built-in fake harness.
 
 ```bash
 # 1. Install
@@ -54,8 +54,8 @@ bmh add ./prompt.md \
   --golden-ref <commit-after-feature> \
   --include-in-suite
 
-# 4. Run the fake-harness smoke suite
-bmh smoke --run-id local_suite_001
+# 4. Run the fake-harness dry-run suite
+bmh run --dry-run --run-id local_suite_001
 
 # 5. Open the report
 open .bmh/runs/local_suite_001/report.html
@@ -132,48 +132,29 @@ See [`docs/adrs/`](./docs/adrs/) for the full design rationale, including [hexag
 
 ### Create or validate a benchmark
 
-BMH uses a JSON-only v1 benchmark format. YAML benchmark files are rejected by validation and run commands; use `.json` fixtures until YAML parsing lands in a later version. Create one interactively:
+BMH uses a JSON-only v1 benchmark format. YAML benchmark files are rejected by validation and run commands; use `.json` fixtures until YAML parsing lands in a later version. For repository work, initialize a catalog and add one or more specs:
 
 ```bash
-bmh benchmark init --output benchmarks/login-validation.benchmark.json
+bmh init --repo-path . --test-command "npm test" --harness codex
+bmh add ./docs/login-validation.md \
+  --base-ref <commit-before-feature> \
+  --golden-ref <commit-after-feature> \
+  --include-in-suite
 ```
 
-Or generate a JSON template from flags:
+You can also add specs interactively:
 
 ```bash
-bmh benchmark init --template \
-  --id login-validation-001 \
-  --name "Login validation" \
-  --category bugfix \
-  --repo-url file:///workspace/app \
-  --commit abc123 \
-  --prompt "Add input validation to the login form." \
-  --test-command "npm test" \
-  --output benchmarks/login-validation.benchmark.json
+bmh add
 ```
 
-For the repository you are currently in, use `--repo-path .`; BMH stores it as an absolute `file://` URL:
+If you already have a standalone benchmark JSON file, validate it with `check`:
 
 ```bash
-bmh benchmark init --template \
-  --id local-001 \
-  --name "Local benchmark" \
-  --category feature \
-  --repo-path . \
-  --prompt "Do the work." \
-  --test-command "npm test" \
-  --output benchmarks/local.benchmark.json
+bmh check benchmarks/login-validation.benchmark.json
 ```
 
-Add `--detect-commands` to generate setup and validation commands for supported local projects (e.g. `npm install`, `npm test`, `npm run typecheck`). Command generation is currently focused on Node.js projects; Python, Rust, Go, .NET, and Java/Kotlin detection is on the roadmap.
-
-For larger prompts, reference a Markdown file with `--prompt-file login-validation.spec.md` instead of inline `--prompt` text.
-
-Validate a benchmark before running it:
-
-```bash
-bmh benchmark validate benchmarks/login-validation.benchmark.json
-```
+Interactive `bmh add` can detect setup and validation commands for supported local projects (e.g. `npm install`, `npm test`, `npm run typecheck`). Command generation is currently focused on Node.js projects; Python, Rust, Go, .NET, and Java/Kotlin detection is on the roadmap.
 
 YAML benchmark files are intentionally rejected in v1.
 
@@ -182,8 +163,7 @@ YAML benchmark files are intentionally rejected in v1.
 Dry-run mode verifies benchmark parsing, workspace creation, hook installation flow, and CLI output without launching Codex or Claude Code:
 
 ```bash
-bmh benchmark run \
-  --benchmark benchmarks/login-validation.benchmark.json \
+bmh run --benchmark benchmarks/login-validation.benchmark.json \
   --harness codex \
   --workspace-root .bmh/workspaces \
   --run-id run_local_001 \
@@ -202,8 +182,7 @@ codex exec --skip-git-repo-check --sandbox workspace-write --dangerously-bypass-
 The prompt is sent over stdin and `BMH_*` variables are injected. For one-off execution you may pass an explicit command:
 
 ```bash
-bmh benchmark run \
-  --benchmark benchmarks/login-validation.benchmark.json \
+bmh run --benchmark benchmarks/login-validation.benchmark.json \
   --harness codex \
   --workspace-root .bmh/workspaces \
   --run-id run_codex_001 \
@@ -227,8 +206,7 @@ During the run, BMH writes project-local Codex hook configuration inside the iso
 Claude Code is supported through the `claude_code` harness id. The process runner sends the prompt to stdin and injects `BMH_*` variables. Use `--harness-command-json` when your local `claude` command needs explicit arguments:
 
 ```bash
-bmh benchmark run \
-  --benchmark benchmarks/login-validation.benchmark.json \
+bmh run --benchmark benchmarks/login-validation.benchmark.json \
   --harness claude_code \
   --workspace-root .bmh/workspaces \
   --run-id run_claude_001 \
@@ -293,7 +271,7 @@ bmh add ./docs/login-validation.md \
 Import multiple prompt files with the same refs:
 
 ```bash
-bmh import "docs/specs/*.md" \
+bmh add "docs/specs/*.md" \
   --base-ref <commit-before-feature> \
   --golden-ref <commit-after-feature>
 ```
@@ -331,13 +309,13 @@ For a single generated Git case, `--base-ref` and `--golden-ref` are required. `
 Validate the catalog and check local harness readiness:
 
 ```bash
-bmh doctor
+bmh check
 ```
 
 Run the suite against the fake harness (no credentials needed):
 
 ```bash
-bmh smoke --run-id local_suite_001
+bmh run --dry-run --run-id local_suite_001
 ```
 
 This writes:
@@ -390,23 +368,23 @@ bmh internal hook-capture --provider codex --event PreToolUse --run-id <run-id> 
 bmh init
 bmh init --repo-path . --setup-command "npm install" --test-command "npm test" --harness codex --harness claude_code --include-in-suite
 bmh add docs/specs/example.md --base-ref <base> --golden-ref <golden>
-bmh import "docs/specs/*.md" --base-ref <base> --golden-ref <golden>
+bmh add "docs/specs/*.md" --base-ref <base> --golden-ref <golden>
 bmh add --from-git --repo-path . --base-ref <base> --golden-ref <golden>
 bmh add --from-git --repo-path . --range main~25..main
-bmh doctor
+bmh check
 bmh run --dry-run --run-id local_suite_001 --harness codex --harness claude_code
 bmh run --real --run-id local_codex_real_001 --harness codex --trials 1
-bmh smoke --run-id local_suite_001
-bmh benchmark validate benchmark.json
-bmh benchmark run --benchmark benchmark.json --harness codex --dry-run
-bmh benchmark run --benchmark benchmark.json --harness codex --harness-command-json '{"executable":"codex","args":[]}' --run-validation
-bmh benchmark run --benchmark benchmark.json --harness claude_code --harness-command-json '{"executable":"claude","args":[]}' --run-validation
+bmh run --dry-run --run-id local_suite_001
+bmh check benchmark.json
+bmh run --benchmark benchmark.json --harness codex --dry-run
+bmh run --benchmark benchmark.json --harness codex --harness-command-json '{"executable":"codex","args":[]}' --run-validation
+bmh run --benchmark benchmark.json --harness claude_code --harness-command-json '{"executable":"claude","args":[]}' --run-validation
 bmh report --input report.json
 bmh report --run-id run_123 --store-root .bmh/runs
 bmh report --run-id local_suite_001 --store-root .bmh/runs --format html
 ```
 
-The v1 CLI accepts JSON benchmark files only. YAML is rejected by `benchmark validate` and `benchmark run`; use `.json` benchmark fixtures until YAML parsing lands in a later version.
+The v1 CLI accepts JSON benchmark files only. YAML is rejected by `check` and `run --benchmark`; use `.json` benchmark fixtures until YAML parsing lands in a later version.
 
 ## Architecture
 

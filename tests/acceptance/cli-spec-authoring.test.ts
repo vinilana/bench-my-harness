@@ -112,6 +112,7 @@ describe("CLI spec authoring", () => {
     const exitCode = await runCli(["node", "bench-my-harness", "add"], {
       ...createRuntime(output),
       cwd: dir,
+      isTty: true,
       stdin: interactiveAnswers([
         "feature",
         "repo",

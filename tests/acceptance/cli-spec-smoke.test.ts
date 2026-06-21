@@ -13,7 +13,7 @@ describe("CLI spec smoke", () => {
     await writeRunnableCatalog(cwd);
 
     const exitCode = await runCli(
-      ["node", "bench-my-harness", "smoke", "--run-id", "run_smoke_defaults"],
+      ["node", "bench-my-harness", "run", "--dry-run", "--run-id", "run_smoke_defaults"],
       runtime(cwd, output)
     );
 
@@ -36,6 +36,34 @@ describe("CLI spec smoke", () => {
     ]);
     await expect(stat(join(cwd, ".bmh", "runs", "run_smoke_defaults", "report.html"))).resolves.toBeDefined();
     expect(output.stderr()).toBe("");
+  });
+
+  test("run --dry-run honors an explicit harness selection", async () => {
+    const cwd = await prepareTempWorkspace("dry-run-codex-only");
+    const output = createOutput();
+    await writeRunnableCatalog(cwd);
+
+    const exitCode = await runCli(
+      ["node", "bench-my-harness", "run", "--dry-run", "--run-id", "run_dry_codex", "--harness", "codex"],
+      runtime(cwd, output)
+    );
+
+    const results = JSON.parse(
+      await readFile(join(cwd, ".bmh", "runs", "run_dry_codex", "results.json"), "utf8")
+    ) as {
+      trial_count: number;
+      selected_harnesses: string[];
+      trials: Array<{ spec_id: string; harness: string; status: string }>;
+    };
+
+    expect(exitCode).toBe(0);
+    expect(results.trial_count).toBe(3);
+    expect(results.selected_harnesses).toEqual(["codex"]);
+    expect(results.trials.map((trial) => `${trial.spec_id}:${trial.harness}:${trial.status}`)).toEqual([
+      "project-command-generation:codex:completed",
+      "project-command-generation:codex:completed",
+      "project-command-generation:codex:completed"
+    ]);
   });
 });
 
