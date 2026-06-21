@@ -12,7 +12,7 @@ import {
 } from "../support/spec19-fixtures.js";
 
 describe("real suite hook command resolution", () => {
-  test("real runs make bmh hook-capture resolvable without global installation", async () => {
+  test("real runs make bmh internal hook-capture resolvable without global installation", async () => {
     const workspace = await createSpec19Workspace({ prefix: "bmh-hook-command-resolution-" });
     const fakeBin = join(workspace.cwd, "fake-bin");
     const output = createOutput();
@@ -24,6 +24,7 @@ const { spawnSync } = await import("node:child_process");
 const { access, mkdir, writeFile } = await import("node:fs/promises");
 const hookPayload = JSON.stringify({ transcript_path: "transcript.jsonl", event: "Stop" });
 const hook = spawnSync("bmh", [
+  "internal",
   "hook-capture",
   "--provider",
   "codex",
@@ -70,7 +71,6 @@ async function exists(path) {
         [
           "node",
           "bench-my-harness",
-          "specs",
           "run",
           "--real",
           "--catalog-root",

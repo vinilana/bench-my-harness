@@ -6,14 +6,14 @@ import { describe, expect, test } from "vitest";
 
 import { runCli } from "../../src/adapters/inbound/cli/main.js";
 
-describe("CLI specs smoke", () => {
+describe("CLI spec smoke", () => {
   test("runs a dry suite smoke with one trial per default harness", async () => {
     const cwd = await prepareTempWorkspace("dry-run-smoke");
     const output = createOutput();
     await writeRunnableCatalog(cwd);
 
     const exitCode = await runCli(
-      ["node", "bench-my-harness", "specs", "smoke", "--run-id", "run_smoke_defaults"],
+      ["node", "bench-my-harness", "smoke", "--run-id", "run_smoke_defaults"],
       runtime(cwd, output)
     );
 

@@ -5,14 +5,14 @@ import { describe, expect, test } from "vitest";
 import { runCli } from "../../src/adapters/inbound/cli/main.js";
 
 describe("CLI prompt file validation and execution", () => {
-  test("validate benchmark passes when prompt.file exists", async () => {
+  test("benchmark validate passes when prompt.file exists", async () => {
     const dir = await mkdtemp(join(tmpdir(), "bmh-cli-prompt-file-"));
     const benchmarkPath = join(dir, "benchmark.json");
     const output = createOutput();
     await writeFile(join(dir, "task.md"), "# Task\n\nDo the work.\n", "utf8");
     await writeFile(benchmarkPath, JSON.stringify(benchmarkWithPromptFile("task.md")), "utf8");
 
-    const exitCode = await runCli(["node", "bench-my-harness", "validate", "benchmark", benchmarkPath], {
+    const exitCode = await runCli(["node", "bench-my-harness", "benchmark", "validate", benchmarkPath], {
       stdout: output.stdout,
       stderr: output.stderr
     });
@@ -22,13 +22,13 @@ describe("CLI prompt file validation and execution", () => {
     expect(output.stderr()).toBe("");
   });
 
-  test("validate benchmark fails when prompt.file is missing", async () => {
+  test("benchmark validate fails when prompt.file is missing", async () => {
     const dir = await mkdtemp(join(tmpdir(), "bmh-cli-prompt-file-"));
     const benchmarkPath = join(dir, "benchmark.json");
     const output = createOutput();
     await writeFile(benchmarkPath, JSON.stringify(benchmarkWithPromptFile("missing.md")), "utf8");
 
-    const exitCode = await runCli(["node", "bench-my-harness", "validate", "benchmark", benchmarkPath], {
+    const exitCode = await runCli(["node", "bench-my-harness", "benchmark", "validate", benchmarkPath], {
       stdout: output.stdout,
       stderr: output.stderr
     });
@@ -61,9 +61,7 @@ await import("node:fs/promises").then(({ writeFile }) => writeFile(process.env.C
     const exitCode = await runCli(
       [
         "node",
-        "bench-my-harness",
-        "run",
-        "--benchmark",
+        "bench-my-harness", "benchmark", "run", "--benchmark",
         benchmarkPath,
         "--harness",
         "codex",

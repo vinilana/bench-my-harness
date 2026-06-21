@@ -35,7 +35,6 @@ process.stdout.write("fake progress harness complete\\n");
       [
         "node",
         "bench-my-harness",
-        "specs",
         "run",
         "--real",
         "--catalog-root",

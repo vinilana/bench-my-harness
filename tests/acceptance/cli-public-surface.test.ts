@@ -7,7 +7,39 @@ import { isCliEntrypoint, runCli } from "../../src/adapters/inbound/cli/main.js"
 import codexPreToolUse from "../fixtures/codex/pre-tool-use.json" with { type: "json" };
 
 describe("public CLI surface", () => {
-  test("hook-capture parses flags, reads stdin, and writes the spool", async () => {
+  test("top-level help shows workflow commands and hides internal hook capture", async () => {
+    const output = createOutput();
+
+    const exitCode = await runCli(["node", "bench-my-harness", "--help"], {
+      stdout: output.stdout,
+      stderr: output.stderr
+    });
+
+    expect(exitCode).toBe(0);
+    expect(output.stdout()).toContain("init");
+    expect(output.stdout()).toContain("add");
+    expect(output.stdout()).toContain("smoke");
+    expect(output.stdout()).toContain("run");
+    expect(output.stdout()).toContain("report");
+    expect(output.stdout()).toContain("doctor");
+    expect(output.stdout()).toContain("benchmark");
+    expect(output.stdout()).not.toContain("hook-capture");
+    expect(output.stderr()).toBe("");
+  });
+
+  test("removed legacy specs namespace is not accepted", async () => {
+    const output = createOutput();
+
+    const exitCode = await runCli(["node", "bench-my-harness", "specs", "run", "--dry-run"], {
+      stdout: output.stdout,
+      stderr: output.stderr
+    });
+
+    expect(exitCode).not.toBe(0);
+    expect(`${output.stdout()}${output.stderr()}`).toContain("unknown command");
+  });
+
+  test("internal hook-capture parses flags, reads stdin, and writes the spool", async () => {
     const dir = await mkdtemp(join(tmpdir(), "bmh-cli-hook-"));
     const spool = join(dir, "events.jsonl");
     const output = createOutput();
@@ -15,8 +47,7 @@ describe("public CLI surface", () => {
     const exitCode = await runCli(
       [
         "node",
-        "bench-my-harness",
-        "hook-capture",
+        "bench-my-harness", "internal", "hook-capture",
         "--provider",
         "codex",
         "--event",
@@ -48,11 +79,11 @@ describe("public CLI surface", () => {
     expect(event.trial_id).toBe("trial_cli");
   });
 
-  test("validate benchmark accepts a valid fixture", async () => {
+  test("benchmark validate accepts a valid fixture", async () => {
     const output = createOutput();
 
     const exitCode = await runCli(
-      ["node", "bench-my-harness", "validate", "benchmark", "tests/fixtures/benchmarks/login-validation.benchmark.json"],
+      ["node", "bench-my-harness", "benchmark", "validate", "tests/fixtures/benchmarks/login-validation.benchmark.json"],
       { stdout: output.stdout, stderr: output.stderr }
     );
 
@@ -61,11 +92,11 @@ describe("public CLI surface", () => {
     expect(output.stderr()).toBe("");
   });
 
-  test("validate benchmark rejects an invalid fixture", async () => {
+  test("benchmark validate rejects an invalid fixture", async () => {
     const output = createOutput();
 
     const exitCode = await runCli(
-      ["node", "bench-my-harness", "validate", "benchmark", "tests/fixtures/benchmarks/missing-limits.benchmark.json"],
+      ["node", "bench-my-harness", "benchmark", "validate", "tests/fixtures/benchmarks/missing-limits.benchmark.json"],
       { stdout: output.stdout, stderr: output.stderr }
     );
 
@@ -74,16 +105,14 @@ describe("public CLI surface", () => {
     expect(output.stderr()).toContain("benchmark invalid:");
   });
 
-  test("run executes a benchmark through fake dry-run mode without harness binaries", async () => {
+  test("benchmark run executes a benchmark through fake dry-run mode without harness binaries", async () => {
     const dir = await mkdtemp(join(tmpdir(), "bmh-cli-run-"));
     const output = createOutput();
 
     const exitCode = await runCli(
       [
         "node",
-        "bench-my-harness",
-        "run",
-        "--benchmark",
+        "bench-my-harness", "benchmark", "run", "--benchmark",
         "tests/fixtures/benchmarks/login-validation.benchmark.json",
         "--harness",
         "codex",
@@ -104,16 +133,14 @@ describe("public CLI surface", () => {
     expect(output.stderr()).toBe("");
   });
 
-  test("run reports missing process harness configuration outside dry-run mode", async () => {
+  test("benchmark run reports missing process harness configuration outside dry-run mode", async () => {
     const dir = await mkdtemp(join(tmpdir(), "bmh-cli-run-"));
     const output = createOutput();
 
     const exitCode = await runCli(
       [
         "node",
-        "bench-my-harness",
-        "run",
-        "--benchmark",
+        "bench-my-harness", "benchmark", "run", "--benchmark",
         "tests/fixtures/benchmarks/login-validation.benchmark.json",
         "--harness",
         "claude_code",
@@ -128,7 +155,7 @@ describe("public CLI surface", () => {
     expect(output.stderr()).toContain("process harness execution is not configured");
   });
 
-  test("run executes a configured fake process harness without real Codex or Claude binaries", async () => {
+  test("benchmark run executes a configured fake process harness without real Codex or Claude binaries", async () => {
     const dir = await mkdtemp(join(tmpdir(), "bmh-cli-process-"));
     const fakeHarnessPath = join(dir, "fake-harness.mjs");
     const capturePath = join(dir, "capture.json");
@@ -151,9 +178,7 @@ await import("node:fs/promises").then(({ writeFile }) => writeFile(process.env.C
     const exitCode = await runCli(
       [
         "node",
-        "bench-my-harness",
-        "run",
-        "--benchmark",
+        "bench-my-harness", "benchmark", "run", "--benchmark",
         "tests/fixtures/benchmarks/login-validation.benchmark.json",
         "--harness",
         "codex",
@@ -186,7 +211,7 @@ await import("node:fs/promises").then(({ writeFile }) => writeFile(process.env.C
     });
   });
 
-  test("run can execute benchmark validation commands when requested", async () => {
+  test("benchmark run can execute benchmark validation commands when requested", async () => {
     const dir = await mkdtemp(join(tmpdir(), "bmh-cli-validation-"));
     const benchmarkPath = join(dir, "benchmark.json");
     const validatorPath = join(dir, "validator.mjs");
@@ -230,9 +255,7 @@ process.stdout.write(process.argv[3] + " ok\\n");
     const exitCode = await runCli(
       [
         "node",
-        "bench-my-harness",
-        "run",
-        "--benchmark",
+        "bench-my-harness", "benchmark", "run", "--benchmark",
         benchmarkPath,
         "--harness",
         "codex",

@@ -544,7 +544,7 @@ npm run build
 Real smoke validation:
 
 ```bash
-node ./dist/adapters/inbound/cli/main.js specs run \
+node ./dist/adapters/inbound/cli/main.js run \
   --real \
   --catalog-root .bmh/specs \
   --store-root .bmh/runs \

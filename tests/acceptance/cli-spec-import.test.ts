@@ -6,7 +6,7 @@ import { describe, expect, test } from "vitest";
 
 import { runCli } from "../../src/adapters/inbound/cli/main.js";
 
-describe("CLI specs import", () => {
+describe("CLI spec import", () => {
   test("imports multiple Markdown prompt files into the configured catalog", async () => {
     const cwd = await prepareTempWorkspace("multiple-files");
     const output = createOutput();
@@ -19,7 +19,6 @@ describe("CLI specs import", () => {
       [
         "node",
         "bench-my-harness",
-        "specs",
         "import",
         "docs/specs/15-project-command-generation.md",
         "docs/specs/16-spec-catalog-reporting.md",
@@ -73,7 +72,6 @@ describe("CLI specs import", () => {
       [
         "node",
         "bench-my-harness",
-        "specs",
         "import",
         "docs/specs/15-project-command-generation.md",
         "docs/specs/project-command-generation.md",
@@ -100,7 +98,6 @@ describe("CLI specs import", () => {
       [
         "node",
         "bench-my-harness",
-        "specs",
         "import",
         "docs/specs/15-project-command-generation.md",
         "--base-ref",
@@ -111,7 +108,7 @@ describe("CLI specs import", () => {
       runtime(cwd, output)
     );
     const validateExitCode = await runCli(
-      ["node", "bench-my-harness", "specs", "validate"],
+      ["node", "bench-my-harness", "doctor"],
       runtime(cwd, output)
     );
 

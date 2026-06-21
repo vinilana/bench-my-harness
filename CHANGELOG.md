@@ -4,6 +4,44 @@ All notable changes to Bench My Harness are documented in this file.
 
 This project follows semantic versioning during the v0 phase: minor versions may add or adjust CLI behavior while the public contracts are still stabilizing.
 
+## [Unreleased]
+
+### Changed
+
+- Redesigned the public CLI around workflow-first commands:
+  - `bmh init`
+  - `bmh add`
+  - `bmh import`
+  - `bmh doctor`
+  - `bmh run`
+  - `bmh smoke`
+  - `bmh report`
+  - `bmh benchmark ...`
+- Moved standalone benchmark JSON operations under `bmh benchmark`.
+- Moved hook ingestion to the hidden `bmh internal hook-capture` command used by generated harness instrumentation.
+- Folded bulk Git draft creation into `bmh add --from-git --range`.
+- Updated README, specs, prompt docs, and acceptance tests to use the new command surface.
+
+### Added
+
+- Added `bmh doctor` to validate the local spec catalog and report Codex/Claude Code executable readiness.
+
+### Removed
+
+- Removed legacy public command paths instead of keeping compatibility aliases:
+  - `bmh specs ...`
+  - `bmh init benchmark`
+  - `bmh validate benchmark`
+  - top-level `bmh run --benchmark ...`
+  - top-level `bmh hook-capture`
+
+### Verified
+
+- Automated verification:
+  - `npm test`: 72 test files, 270 tests passing.
+  - `npm run typecheck`: passing.
+  - `npm run build`: passing.
+
 ## [0.1.0] - 2026-06-21
 
 First release of Bench My Harness, focused on local, reproducible benchmark execution for Codex and Claude Code.

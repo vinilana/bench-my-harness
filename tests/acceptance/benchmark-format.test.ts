@@ -7,7 +7,7 @@ describe("benchmark format", () => {
     const output = createOutput();
 
     const exitCode = await runCli(
-      ["node", "bench-my-harness", "validate", "benchmark", "tests/fixtures/benchmarks/login-validation.benchmark.json"],
+      ["node", "bench-my-harness", "benchmark", "validate", "tests/fixtures/benchmarks/login-validation.benchmark.json"],
       { stdout: output.stdout, stderr: output.stderr }
     );
 
@@ -20,7 +20,7 @@ describe("benchmark format", () => {
     const output = createOutput();
 
     const exitCode = await runCli(
-      ["node", "bench-my-harness", "validate", "benchmark", "tests/fixtures/benchmarks/login-validation.benchmark.yml"],
+      ["node", "bench-my-harness", "benchmark", "validate", "tests/fixtures/benchmarks/login-validation.benchmark.yml"],
       { stdout: output.stdout, stderr: output.stderr }
     );
 
@@ -35,9 +35,7 @@ describe("benchmark format", () => {
     const exitCode = await runCli(
       [
         "node",
-        "bench-my-harness",
-        "run",
-        "--benchmark",
+        "bench-my-harness", "benchmark", "run", "--benchmark",
         "tests/fixtures/benchmarks/login-validation.benchmark.yml",
         "--harness",
         "codex",

@@ -32,7 +32,6 @@ process.stderr.write("fake stderr diagnostic\\n");
       [
         "node",
         "bench-my-harness",
-        "specs",
         "run",
         "--real",
         "--catalog-root",
@@ -117,7 +116,6 @@ process.exit(7);
       [
         "node",
         "bench-my-harness",
-        "specs",
         "run",
         "--real",
         "--catalog-root",
@@ -170,7 +168,6 @@ process.exit(7);
       [
         "node",
         "bench-my-harness",
-        "specs",
         "run",
         "--real",
         "--catalog-root",

@@ -56,10 +56,14 @@ Rules:
 
 ## CLI Surface
 
+BMH exposes workflow commands at the top level. The old `specs ...`,
+`benchmark init`, `benchmark validate`, and standalone benchmark `run`
+surfaces are removed instead of retained as aliases.
+
 Configure defaults:
 
 ```bash
-bench-my-harness specs configure \
+bench-my-harness init \
   --repo-path . \
   --category feature \
   --setup-command "npm install" \
@@ -75,7 +79,7 @@ bench-my-harness specs configure \
 Create a spec from a Markdown prompt file:
 
 ```bash
-bench-my-harness specs create docs/specs/15-project-command-generation.md \
+bench-my-harness add docs/specs/15-project-command-generation.md \
   --base-ref b8abf4b \
   --golden-ref f90fa73
 ```
@@ -83,7 +87,7 @@ bench-my-harness specs create docs/specs/15-project-command-generation.md \
 Create multiple specs from Markdown prompt files:
 
 ```bash
-bench-my-harness specs import docs/specs/*.md \
+bench-my-harness import docs/specs/*.md \
   --base-ref f90fa73 \
   --golden-ref HEAD
 ```
@@ -91,25 +95,47 @@ bench-my-harness specs import docs/specs/*.md \
 Run using suite defaults:
 
 ```bash
-bench-my-harness specs run
+bench-my-harness run
 ```
 
 Run a dry smoke test using suite defaults:
 
 ```bash
-bench-my-harness specs smoke
+bench-my-harness smoke
 ```
 
 Equivalent to:
 
 ```bash
-bench-my-harness specs run --dry-run --trials 1
+bench-my-harness run --dry-run --trials 1
 bench-my-harness report --run-id <generated-run-id> --format html
 ```
 
+Check local readiness:
+
+```bash
+bench-my-harness doctor
+```
+
+Standalone benchmark JSON commands are advanced and grouped under:
+
+```bash
+bench-my-harness benchmark init
+bench-my-harness benchmark validate <benchmark.json>
+bench-my-harness benchmark run --benchmark <benchmark.json> --harness codex
+```
+
+Harness hooks call an internal command:
+
+```bash
+bench-my-harness internal hook-capture --provider codex --event PreToolUse
+```
+
+`internal hook-capture` is stable for generated hooks but hidden from normal help.
+
 ## Convention-Based Inference
 
-When `specs create <prompt-file>` is used, BMH infers:
+When `add <prompt-file>` is used, BMH infers:
 
 - `id` from the file basename;
 - `name` from the first Markdown H1, or from the filename when no H1 exists;
@@ -145,7 +171,7 @@ Project Command Generation Spec
 Backward Git authoring should also use defaults:
 
 ```bash
-bench-my-harness specs create --from-git \
+bench-my-harness add --from-git \
   --base-ref b8abf4b \
   --golden-ref f90fa73
 ```
@@ -169,7 +195,7 @@ Generated backward specs still require review and must keep:
 
 ## Import Behavior
 
-`specs import` creates one spec per prompt file.
+`import` creates one spec per prompt file.
 
 Rules:
 
@@ -177,7 +203,7 @@ Rules:
 - duplicate inferred ids must fail unless `--force` is provided;
 - `--base-ref` and `--golden-ref` apply to all imported specs;
 - per-file refs are not part of v1 import;
-- imported specs must pass `specs validate`.
+- imported specs must pass `doctor` catalog validation.
 
 ## Architecture
 
@@ -232,10 +258,16 @@ No CLI, filesystem, or process details should leak into application use cases.
 CLI changes:
 
 ```text
-bench-my-harness specs configure
-bench-my-harness specs create <prompt-file>
-bench-my-harness specs import <prompt-file...>
-bench-my-harness specs smoke
+bench-my-harness init
+bench-my-harness add <prompt-file>
+bench-my-harness import <prompt-file...>
+bench-my-harness smoke
+bench-my-harness run
+bench-my-harness doctor
+bench-my-harness benchmark init
+bench-my-harness benchmark validate <benchmark.json>
+bench-my-harness benchmark run --benchmark <benchmark.json>
+bench-my-harness internal hook-capture
 ```
 
 Filesystem catalog store changes:
@@ -262,13 +294,13 @@ Add tests before implementation:
   - merges suite defaults with explicit CLI overrides.
 
 - `tests/acceptance/cli-spec-configure.test.ts`
-  - `specs configure` writes defaults into `.bmh/specs/suite.json`;
+  - `init` writes defaults into `.bmh/specs/suite.json`;
   - repeated `--setup-command` and `--test-command` preserve order;
   - explicit command flags override existing defaults;
   - invalid harness defaults are rejected.
 
 - `tests/acceptance/cli-spec-convention-create.test.ts`
-  - `specs create docs/specs/example.md --base-ref <base> --golden-ref <golden>` writes `spec.md` and `benchmark.json`;
+  - `add docs/specs/example.md --base-ref <base> --golden-ref <golden>` writes `spec.md` and `benchmark.json`;
   - generated benchmark stores resolved repo URL and command defaults;
   - generated spec is added to suite when `include_in_suite` default is true;
   - explicit `--id`, `--name`, `--category`, and command flags override inferred/default values.
@@ -279,17 +311,27 @@ Add tests before implementation:
   - validates generated catalog after import.
 
 - `tests/acceptance/cli-spec-smoke.test.ts`
-  - `specs smoke` runs dry-run with one trial;
+  - `smoke` runs dry-run with one trial;
   - writes `results.json`;
   - writes `report.html`;
   - does not require real Codex or Claude Code.
+
+- `tests/acceptance/cli-doctor.test.ts`
+  - `doctor` validates the local spec catalog;
+  - reports configured harness defaults;
+  - reports missing real harness executables without starting a run.
+
+- `tests/acceptance/cli-public-surface.test.ts`
+  - top-level help shows workflow commands;
+  - top-level help hides `internal hook-capture`;
+  - removed legacy commands fail instead of aliasing.
 
 ## Documentation Updates
 
 Update:
 
 - `README.md` Getting Started to prefer the simplified commands;
-- `docs/prompts/initialize-bmh-spec-catalog-prompt.md` to ask agents to run `specs configure` once and then use `specs create <prompt-file>`;
+- `docs/prompts/initialize-bmh-spec-catalog-prompt.md` to ask agents to run `init` once and then use `add <prompt-file>`;
 - `docs/specs/16-spec-catalog-and-suite-reporting.md` to reference this spec for UX defaults.
 
 ## Verification Commands
@@ -310,7 +352,7 @@ npm run build
 
 - Do not hide benchmark contracts. Generated `benchmark.json` files must remain explicit.
 - Do not infer `base_ref` or `golden_ref` for forward specs unless the user provides them or uses Git backfill.
-- Do not call real Codex or Claude Code from `specs smoke`.
+- Do not call real Codex or Claude Code from `smoke`.
 - Do not weaken path traversal protections.
-- Do not silently overwrite specs created from previous prompts.
+- Do not silently overwrite addd from previous prompts.
 - Do not treat inferred names or ids as semantic product requirements.

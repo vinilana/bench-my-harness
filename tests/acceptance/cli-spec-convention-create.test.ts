@@ -6,7 +6,7 @@ import { describe, expect, test } from "vitest";
 
 import { runCli } from "../../src/adapters/inbound/cli/main.js";
 
-describe("CLI specs create convention authoring", () => {
+describe("CLI add convention authoring", () => {
   test("creates a spec from a Markdown prompt argument using suite defaults", async () => {
     const cwd = await prepareTempWorkspace("create-from-prompt");
     const output = createOutput();
@@ -22,8 +22,7 @@ describe("CLI specs create convention authoring", () => {
       [
         "node",
         "bench-my-harness",
-        "specs",
-        "create",
+        "add",
         "docs/specs/15-project-command-generation.md",
         "--base-ref",
         "base123",
@@ -82,8 +81,7 @@ describe("CLI specs create convention authoring", () => {
       [
         "node",
         "bench-my-harness",
-        "specs",
-        "create",
+        "add",
         "prompts/Project Command Generation.md",
         "--id",
         "custom-project-command",

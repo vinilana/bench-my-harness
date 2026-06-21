@@ -11,8 +11,8 @@ Goal:
 - Use existing documentation, specs, tickets, commit history, tests, and source code as evidence.
 - Prefer deterministic validation commands such as tests, typecheck, lint, and build.
 - Make the catalog ready for:
-  `bench-my-harness specs validate`
-  `bench-my-harness specs run --dry-run --harness codex --harness claude_code`
+  `bench-my-harness doctor`
+  `bench-my-harness run --dry-run --harness codex --harness claude_code`
 
 Rules:
 - Use the Bench My Harness CLI when available. Do not hand-write files that the CLI can create.
@@ -30,10 +30,10 @@ Suggested workflow:
    `npm run build`
 
 2. Initialize the catalog:
-   `node ./dist/adapters/inbound/cli/main.js specs init`
+   `node ./dist/adapters/inbound/cli/main.js init`
 
 3. Configure authoring defaults once for this repository:
-   `node ./dist/adapters/inbound/cli/main.js specs configure --repo-path . --category feature --setup-command "<setup command>" --test-command "<validation command>" --harness codex --harness claude_code --trials 3 --include-in-suite`
+   `node ./dist/adapters/inbound/cli/main.js init --repo-path . --category feature --setup-command "<setup command>" --test-command "<validation command>" --harness codex --harness claude_code --trials 3 --include-in-suite`
 
 4. Identify 3 to 10 good benchmark candidates:
    - features with clear docs or specs;
@@ -42,22 +42,22 @@ Suggested workflow:
    - small to medium tasks that an agent can reasonably re-implement.
 
 5. For each candidate with an existing Markdown requirement/spec, run:
-   `node ./dist/adapters/inbound/cli/main.js specs create <path-to-requirement.md> --base-ref <commit-before-feature> --golden-ref <commit-after-feature>`
+   `node ./dist/adapters/inbound/cli/main.js add <path-to-requirement.md> --base-ref <commit-before-feature> --golden-ref <commit-after-feature>`
 
 6. To create several specs from Markdown requirements with the same refs, run:
-   `node ./dist/adapters/inbound/cli/main.js specs import "docs/specs/*.md" --base-ref <commit-before-feature> --golden-ref <commit-after-feature>`
+   `node ./dist/adapters/inbound/cli/main.js import "docs/specs/*.md" --base-ref <commit-before-feature> --golden-ref <commit-after-feature>`
 
 7. For each candidate that only has Git history evidence, run:
-   `node ./dist/adapters/inbound/cli/main.js specs create --from-git --include-in-suite --id <spec-id> --name "<Human name>" --category <feature|bugfix|refactor> --repo-path . --base-ref <commit-before-feature> --golden-ref <commit-after-feature> --test-command "<validation command>"`
+   `node ./dist/adapters/inbound/cli/main.js add --from-git --include-in-suite --id <spec-id> --name "<Human name>" --category <feature|bugfix|refactor> --repo-path . --base-ref <commit-before-feature> --golden-ref <commit-after-feature> --test-command "<validation command>"`
 
 8. For bulk draft creation from recent history, use a conservative limit:
-   `node ./dist/adapters/inbound/cli/main.js specs backfill --repo-path . --range <base>..<head> --limit 25`
+   `node ./dist/adapters/inbound/cli/main.js add --from-git --repo-path . --range <base>..<head> --limit 25`
 
 9. Validate the catalog:
-   `node ./dist/adapters/inbound/cli/main.js specs validate`
+   `node ./dist/adapters/inbound/cli/main.js doctor`
 
 10. Run a dry benchmark smoke test and render the HTML report:
-   `node ./dist/adapters/inbound/cli/main.js specs smoke --run-id specs_smoke`
+   `node ./dist/adapters/inbound/cli/main.js smoke --run-id specs_smoke`
 
 11. Review the generated files:
    - `.bmh/specs/suite.json`
@@ -65,7 +65,7 @@ Suggested workflow:
    - `.bmh/specs/features/*/benchmark.json`
 
 Acceptance criteria:
-- `bench-my-harness specs validate` passes.
+- `bench-my-harness doctor` passes.
 - Dry-run suite execution completes.
 - `.bmh/runs/<run-id>/report.html` is generated.
 - Specs include fixed repo refs, setup commands, validation commands, limits, expected outputs, and metadata.
