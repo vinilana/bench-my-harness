@@ -6,9 +6,11 @@ The v1 scope is intentionally narrow: **Codex** and **Claude Code** only. The pr
 
 ## Problem
 
-Teams are adopting coding agents without reliable evidence about which harness performs best for their own repositories. Manual comparisons are noisy because every run can differ by prompt delivery, working directory, session history, permissions, context, model, hooks, and human timing.
+Everyone is investing heavily in their agent setup: installing skills, adopting spec-driven development, building workflows, swapping between models, and stacking context layer on context layer. It is real work, and everyone has strong opinions about what helps. But when it comes time to prove that any of those changes actually improved the result, there is no number. The decision is made on instinct and a stray screenshot.
 
-BMH turns those comparisons into reproducible benchmark runs with captured events, artifacts, metrics, and explicit observability confidence.
+The same gap shows up when teams adopt coding agents without reliable evidence about which harness performs best for their own repositories. Manual comparisons are noisy because every run can differ by prompt delivery, working directory, session history, permissions, context, model, hooks, and human timing. Two runs are never the same, so the conclusion collapses into guesswork.
+
+BMH closes that gap. It turns those comparisons into reproducible benchmark runs with captured events, artifacts, metrics, and explicit observability confidence. The intended loop is simple: measure your current setup, change one variable — a skill, a workflow, a context layer, the model — and measure again. The discussion stops being "I think it got better" and becomes time, cost, and passing tests, side by side.
 
 ## Goals
 
