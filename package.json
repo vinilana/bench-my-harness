@@ -4,14 +4,21 @@
   "author": "Vinicius Lana <vini@aicoders.academy>",
   "description": "Benchmark and observability harness for comparing agentic coding tools.",
   "type": "module",
+  "files": [
+    "dist",
+    "README.md",
+    "CHANGELOG.md"
+  ],
   "bin": {
-    "bmh": "./dist/adapters/inbound/cli/main.js"
+    "bmh": "dist/adapters/inbound/cli/main.js"
   },
   "engines": {
     "node": ">=22"
   },
   "scripts": {
-    "build": "find src -name '*.ts' -print0 | xargs -0 tsc --target ES2022 --module NodeNext --moduleResolution NodeNext --strict --esModuleInterop --forceConsistentCasingInFileNames --skipLibCheck --outDir dist --rootDir src --types node",
+    "clean": "rm -rf dist",
+    "build": "npm run clean && find src -name '*.ts' -print0 | xargs -0 tsc --target ES2022 --module NodeNext --moduleResolution NodeNext --strict --esModuleInterop --forceConsistentCasingInFileNames --skipLibCheck --outDir dist --rootDir src --types node",
+    "prepack": "npm run build",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",

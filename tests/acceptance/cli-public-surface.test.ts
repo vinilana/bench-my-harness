@@ -301,7 +301,7 @@ process.stdout.write(process.argv[3] + " ok\\n");
       bin?: Record<string, string>;
     };
 
-    expect(pkg.bin?.["bmh"]).toBe("./dist/adapters/inbound/cli/main.js");
+    expect(pkg.bin?.["bmh"]).toBe("dist/adapters/inbound/cli/main.js");
     expect(pkg.bin?.["bench-my-harness"]).toBeUndefined();
   });
 
