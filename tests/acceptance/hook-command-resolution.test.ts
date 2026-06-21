@@ -12,7 +12,7 @@ import {
 } from "../support/spec19-fixtures.js";
 
 describe("real suite hook command resolution", () => {
-  test("real runs make bench-my-harness hook-capture resolvable without global installation", async () => {
+  test("real runs make bmh hook-capture resolvable without global installation", async () => {
     const workspace = await createSpec19Workspace({ prefix: "bmh-hook-command-resolution-" });
     const fakeBin = join(workspace.cwd, "fake-bin");
     const output = createOutput();
@@ -21,9 +21,9 @@ describe("real suite hook command resolution", () => {
       join(fakeBin, "codex"),
       `
 const { spawnSync } = await import("node:child_process");
-const { mkdir, writeFile } = await import("node:fs/promises");
+const { access, mkdir, writeFile } = await import("node:fs/promises");
 const hookPayload = JSON.stringify({ transcript_path: "transcript.jsonl", event: "Stop" });
-const hook = spawnSync("bench-my-harness", [
+const hook = spawnSync("bmh", [
   "hook-capture",
   "--provider",
   "codex",
@@ -46,12 +46,22 @@ await writeFile(".bmh/hook-resolution-capture.json", JSON.stringify({
   stdout: hook.stdout,
   stderr: hook.stderr,
   pathEntries,
-  pathHasLocalShim: pathEntries.some((entry) => entry.includes(".bmh"))
+  pathHasLocalShim: pathEntries.some((entry) => entry.includes(".bmh")),
+  bmhShimExists: await exists(".bmh/bin/bmh")
 }, null, 2));
 if (hook.error || hook.status !== 0) {
   process.exit(1);
 }
 process.stdout.write("hook resolution complete\\n");
+
+async function exists(path) {
+  try {
+    await access(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
 `
     );
 
@@ -85,11 +95,16 @@ process.stdout.write("hook resolution complete\\n");
       status: number;
       error?: string;
       pathHasLocalShim: boolean;
+      bmhShimExists: boolean;
     }>(join(trialDir, ".bmh", "hook-resolution-capture.json"));
 
     expect(exitCode).toBe(0);
     expect(output.stderr()).toBe("");
-    expect(capture).toMatchObject({ status: 0, pathHasLocalShim: true });
+    expect(capture).toMatchObject({
+      status: 0,
+      pathHasLocalShim: true,
+      bmhShimExists: true
+    });
     expect(capture.error).toBeUndefined();
 
     const [spoolLine] = (await readFile(join(trialDir, ".bmh", "hooks.jsonl"), "utf8")).trim().split("\n");

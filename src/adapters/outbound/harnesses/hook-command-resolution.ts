@@ -24,7 +24,7 @@ export async function createRunLocalHookCommandShim(
   input: HookCommandResolutionInput
 ): Promise<HookCommandResolution> {
   const workspace = resolve(input.workspace);
-  const shimPath = join(workspace, ".bmh", "bin", "bench-my-harness");
+  const shimPath = join(workspace, ".bmh", "bin", "bmh");
   const cliEntrypoint = resolve(input.cliEntrypoint ?? defaultCliEntrypoint());
   const nodeExecutable = input.nodeExecutable ?? process.execPath;
   const previousContent = await readExistingFile(shimPath);

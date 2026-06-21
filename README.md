@@ -99,7 +99,7 @@ Core code must not import Codex or Claude-specific packages or schemas directly.
 3. BMH installs temporary hooks for the selected harness.
 4. BMH injects run metadata through environment variables.
 5. BMH runs the harness in non-interactive benchmark mode.
-6. The harness calls `bench-my-harness hook-capture` during lifecycle events.
+6. The harness calls `bmh hook-capture` during lifecycle events.
 7. BMH persists raw events, normalizes canonical events, and records metric observations.
 8. BMH collects transcripts, diffs, validation results, usage data, and artifacts.
 9. BMH removes temporary hook configuration.
@@ -112,7 +112,7 @@ The benchmark runner installs temporary project-local hook configuration for eac
 The hook command shape is:
 
 ```bash
-bench-my-harness hook-capture \
+bmh hook-capture \
   --provider codex \
   --run-id "$BMH_RUN_ID" \
   --trial-id "$BMH_TRIAL_ID" \
@@ -218,6 +218,8 @@ You can run it directly with `node`:
 ```bash
 node ./dist/adapters/inbound/cli/main.js --help
 ```
+
+When installed as a package, the CLI binary is `bmh`.
 
 ### 2. Create or validate a benchmark
 
@@ -331,10 +333,10 @@ Codex usage capture is best effort. When a run artifact includes a Codex session
 OpenAI cost estimates default to Standard pricing. Set `BMH_OPENAI_PRICING_MODE=priority` when the benchmark should estimate Codex usage with Priority pricing:
 
 ```bash
-BMH_OPENAI_PRICING_MODE=priority bench-my-harness suite run --real --harness codex
+BMH_OPENAI_PRICING_MODE=priority bmh specs run --real --harness codex
 ```
 
-During the run, BMH writes project-local Codex hook configuration inside the isolated trial workspace and points hooks at `bench-my-harness hook-capture --provider codex`.
+During the run, BMH writes project-local Codex hook configuration inside the isolated trial workspace and points hooks at `bmh hook-capture --provider codex`.
 
 ### 5. Run Claude Code
 
@@ -351,7 +353,7 @@ node ./dist/adapters/inbound/cli/main.js run \
   --run-validation
 ```
 
-During the run, BMH writes project-local Claude Code hook configuration inside the isolated trial workspace and points hooks at `bench-my-harness hook-capture --provider claude_code`.
+During the run, BMH writes project-local Claude Code hook configuration inside the isolated trial workspace and points hooks at `bmh hook-capture --provider claude_code`.
 
 Claude Code usage capture is best effort. When a run artifact includes a Claude transcript JSONL file, BMH can report model, input/output/cache/total tokens, and cost. Cost is native when Claude provides `costUSD`; otherwise BMH estimates known Claude models from embedded pricing and marks the value as estimated.
 
@@ -525,24 +527,24 @@ npm run build
 Current CLI surface:
 
 ```bash
-bench-my-harness hook-capture --provider codex --event PreToolUse
-bench-my-harness specs init
-bench-my-harness specs configure --repo-path . --setup-command "npm install" --test-command "npm test" --harness codex --harness claude_code --include-in-suite
-bench-my-harness specs create docs/specs/example.md --base-ref <base> --golden-ref <golden>
-bench-my-harness specs import "docs/specs/*.md" --base-ref <base> --golden-ref <golden>
-bench-my-harness specs create --from-git --base-ref <base> --golden-ref <golden>
-bench-my-harness specs backfill --repo-path . --range main~25..main
-bench-my-harness specs validate
-bench-my-harness specs run --dry-run --run-id local_suite_001 --harness codex --harness claude_code
-bench-my-harness specs run --real --run-id local_codex_real_001 --harness codex --trials 1
-bench-my-harness specs smoke --run-id local_suite_001
-bench-my-harness validate benchmark benchmark.json
-bench-my-harness run --benchmark benchmark.json --harness codex --dry-run
-bench-my-harness run --benchmark benchmark.json --harness codex --harness-command-json '{"executable":"codex","args":[]}' --run-validation
-bench-my-harness run --benchmark benchmark.json --harness claude_code --harness-command-json '{"executable":"claude","args":[]}' --run-validation
-bench-my-harness report --input report.json
-bench-my-harness report --run-id run_123 --store-root .bmh/runs
-bench-my-harness report --run-id local_suite_001 --store-root .bmh/runs --format html
+bmh hook-capture --provider codex --event PreToolUse
+bmh specs init
+bmh specs configure --repo-path . --setup-command "npm install" --test-command "npm test" --harness codex --harness claude_code --include-in-suite
+bmh specs create docs/specs/example.md --base-ref <base> --golden-ref <golden>
+bmh specs import "docs/specs/*.md" --base-ref <base> --golden-ref <golden>
+bmh specs create --from-git --base-ref <base> --golden-ref <golden>
+bmh specs backfill --repo-path . --range main~25..main
+bmh specs validate
+bmh specs run --dry-run --run-id local_suite_001 --harness codex --harness claude_code
+bmh specs run --real --run-id local_codex_real_001 --harness codex --trials 1
+bmh specs smoke --run-id local_suite_001
+bmh validate benchmark benchmark.json
+bmh run --benchmark benchmark.json --harness codex --dry-run
+bmh run --benchmark benchmark.json --harness codex --harness-command-json '{"executable":"codex","args":[]}' --run-validation
+bmh run --benchmark benchmark.json --harness claude_code --harness-command-json '{"executable":"claude","args":[]}' --run-validation
+bmh report --input report.json
+bmh report --run-id run_123 --store-root .bmh/runs
+bmh report --run-id local_suite_001 --store-root .bmh/runs --format html
 ```
 
 The v1 CLI is JSON-only v1 for benchmark files. YAML benchmark files are rejected by `validate benchmark` and `run`; use `.json` benchmark fixtures until YAML parsing is implemented in a later version.

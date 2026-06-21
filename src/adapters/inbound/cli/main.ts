@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { access, chmod, mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
+import { access, chmod, mkdir, readFile, readdir, realpath, stat, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -129,7 +129,7 @@ export function buildProgram(context: CliContext): Command {
   const program = new Command();
 
   program
-    .name("bench-my-harness")
+    .name("bmh")
     .description("Benchmark and observability harness for comparing agentic coding tools.")
     .exitOverride()
     .configureOutput({
@@ -1245,7 +1245,7 @@ function defaultHarnessCommand(harness: HookCaptureProvider): HarnessCommand {
 
 async function ensureLocalHookCommandShim(cwd: string): Promise<string> {
   const binDir = resolvePath(cwd, ".bmh/bin");
-  const shimPath = join(binDir, "bench-my-harness");
+  const primaryShimPath = join(binDir, "bmh");
   const cliPath = fileURLToPath(import.meta.url);
   const script = [
     "#!/usr/bin/env bash",
@@ -1258,8 +1258,8 @@ async function ensureLocalHookCommandShim(cwd: string): Promise<string> {
   ].join("\n");
 
   await mkdir(binDir, { recursive: true });
-  await writeFile(shimPath, script, "utf8");
-  await chmod(shimPath, 0o755);
+  await writeFile(primaryShimPath, script, "utf8");
+  await chmod(primaryShimPath, 0o755);
 
   return binDir;
 }
@@ -1539,7 +1539,25 @@ class DryRunArtifactCollector implements ArtifactCollectorPort {
   }
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (await isCliEntrypoint(import.meta.url, process.argv[1])) {
   const exitCode = await runCli();
   process.exitCode = exitCode;
+}
+
+export async function isCliEntrypoint(moduleUrl: string, argvPath: string | undefined): Promise<boolean> {
+  if (argvPath === undefined) {
+    return false;
+  }
+
+  const modulePath = fileURLToPath(moduleUrl);
+  const invocationPath = resolve(argvPath);
+  if (modulePath === invocationPath) {
+    return true;
+  }
+
+  try {
+    return await realpath(modulePath) === await realpath(invocationPath);
+  } catch {
+    return false;
+  }
 }

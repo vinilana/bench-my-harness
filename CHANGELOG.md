@@ -10,7 +10,7 @@ First release of Bench My Harness, focused on local, reproducible benchmark exec
 
 ### Added
 
-- CLI entrypoint with `hook-capture`, `validate`, `run`, `specs`, and `report` commands.
+- CLI entrypoint with the `bmh` binary and `hook-capture`, `validate`, `run`, `specs`, and `report` commands.
 - Hexagonal architecture foundation with domain, application ports, inbound adapters, and outbound adapters separated by tests.
 - Versioned JSON benchmark schema with validation for repository refs, prompts, setup commands, validation commands, expected outputs, limits, and scoring.
 - Markdown prompt-file support through `prompt.file`, including path-safety checks and prompt resolution before harness execution.

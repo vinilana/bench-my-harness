@@ -1,8 +1,9 @@
-import { mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { describe, expect, test } from "vitest";
-import { runCli } from "../../src/adapters/inbound/cli/main.js";
+import { isCliEntrypoint, runCli } from "../../src/adapters/inbound/cli/main.js";
 import codexPreToolUse from "../fixtures/codex/pre-tool-use.json" with { type: "json" };
 
 describe("public CLI surface", () => {
@@ -300,7 +301,18 @@ process.stdout.write(process.argv[3] + " ok\\n");
       bin?: Record<string, string>;
     };
 
-    expect(pkg.bin?.["bench-my-harness"]).toBe("./dist/adapters/inbound/cli/main.js");
+    expect(pkg.bin?.["bmh"]).toBe("./dist/adapters/inbound/cli/main.js");
+    expect(pkg.bin?.["bench-my-harness"]).toBeUndefined();
+  });
+
+  test("CLI entrypoint detection accepts npm-style symlinked bins", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "bmh-cli-bin-"));
+    const target = join(dir, "main.js");
+    const link = join(dir, "bmh");
+    await writeFile(target, "");
+    await symlink(target, link);
+
+    await expect(isCliEntrypoint(pathToFileURL(target).href, link)).resolves.toBe(true);
   });
 });
 

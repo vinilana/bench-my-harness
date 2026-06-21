@@ -5,7 +5,7 @@
   "description": "Benchmark and observability harness for comparing agentic coding tools.",
   "type": "module",
   "bin": {
-    "bench-my-harness": "./dist/adapters/inbound/cli/main.js"
+    "bmh": "./dist/adapters/inbound/cli/main.js"
   },
   "engines": {
     "node": ">=22"
