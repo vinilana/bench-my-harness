@@ -4,7 +4,7 @@ All notable changes to Bench My Harness are documented in this file.
 
 This project follows semantic versioning during the v0 phase: minor versions may add or adjust CLI behavior while the public contracts are still stabilizing.
 
-## [Unreleased]
+## [0.4.0] - 2026-06-21
 
 ### Changed
 
@@ -20,6 +20,15 @@ This project follows semantic versioning during the v0 phase: minor versions may
 
 - Corrected `bmh add --from-git` missing-ref errors so they name `add --from-git` instead of `benchmark init`.
 - Added CLI error-path coverage for required options, conflicting flags, malformed harness command JSON, unsupported YAML benchmarks, empty `add` globs, report input validation, and hook-capture provider validation.
+
+### Verified
+
+- Automated verification:
+  - `npm test`: 71 test files, 279 tests passing.
+  - `npm run typecheck`: passing.
+  - `npm run build`: passing.
+- Packaging verification:
+  - `npm pack --dry-run`: package contents verified for `bench-my-harness@0.4.0`.
 
 ## [0.3.0] - 2026-06-21
 

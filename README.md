@@ -12,6 +12,8 @@
 
 Bench My Harness (BMH) runs the same coding task against different agentic harnesses — **Codex** and **Claude Code** in v1 — captures what each one did, and turns the comparison into reproducible numbers: time, cost, tokens, and passing tests, side by side, with explicit source and confidence on every metric.
 
+> **You tuned your agent setup: new skills, workflows, context, a different model. Did it actually get better, or does it just feel that way? Nobody measures. BMH does.** [Why →](#why-bmh)
+
 ## Table of Contents
 
 - [Quickstart](#quickstart)
