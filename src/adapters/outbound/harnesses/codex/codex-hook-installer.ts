@@ -6,6 +6,11 @@ import type {
   InstallHarnessHooksInput,
   InstallHarnessHooksPort
 } from "../../../../application/ports/install-harness-hooks-port.js";
+import {
+  createRunLocalHookCommandShim,
+  shellQuote,
+  type HookCommandResolver
+} from "../hook-command-resolution.js";
 
 const CODEX_EVENTS = [
   "SessionStart",
@@ -19,22 +24,41 @@ const CODEX_EVENTS = [
 
 type CodexEvent = (typeof CODEX_EVENTS)[number];
 
+export interface CodexHookInstallerOptions {
+  readonly hookCommandResolver?: HookCommandResolver;
+}
+
 export class CodexHookInstaller implements InstallHarnessHooksPort {
+  private readonly hookCommandResolver: HookCommandResolver;
+
+  public constructor(options: CodexHookInstallerOptions = {}) {
+    this.hookCommandResolver = options.hookCommandResolver ?? createRunLocalHookCommandShim;
+  }
+
   public async install(input: InstallHarnessHooksInput): Promise<HookInstallation> {
     const workspace = resolve(input.workspace);
     const spoolPath = resolve(input.spoolPath);
     assertInsideWorkspace(workspace, spoolPath, "spoolPath");
 
+    const hookCommandResolution = await this.hookCommandResolver({ workspace });
     const hooksPath = join(workspace, ".codex", "hooks.json");
     assertInsideWorkspace(workspace, hooksPath, "Codex hook config");
-    const generatedFile = await writeGeneratedJsonFile(hooksPath, buildCodexHooks(input, spoolPath));
+    const generatedFile = await writeGeneratedJsonFile(
+      hooksPath,
+      buildCodexHooks(input, spoolPath, hookCommandResolution.command)
+    );
 
     return {
       id: `codex-hooks:${input.runId}:${input.trialId}`,
       provider: "codex",
       workspace,
-      files: [hooksPath],
-      generatedFiles: [generatedFile]
+      files: [hooksPath, hookCommandResolution.shimPath],
+      generatedFiles: [generatedFile, ...hookCommandResolution.generatedFiles],
+      hookCommand: {
+        strategy: hookCommandResolution.strategy,
+        command: hookCommandResolution.command,
+        shimPath: hookCommandResolution.shimPath
+      }
     };
   }
 
@@ -60,14 +84,18 @@ export class CodexHookInstaller implements InstallHarnessHooksPort {
   }
 }
 
-function buildCodexHooks(input: InstallHarnessHooksInput, spoolPath: string): { hooks: Record<CodexEvent, unknown[]> } {
+function buildCodexHooks(
+  input: InstallHarnessHooksInput,
+  spoolPath: string,
+  hookCommandPath: string
+): { hooks: Record<CodexEvent, unknown[]> } {
   const hooks = Object.fromEntries(
     CODEX_EVENTS.map((event) => [
       event,
       [
         {
           matcher: matcherFor(event),
-          hooks: [{ type: "command", command: hookCommand(event, input, spoolPath), timeout: 5 }]
+          hooks: [{ type: "command", command: hookCommand(event, input, spoolPath, hookCommandPath), timeout: 5 }]
         }
       ]
     ])
@@ -88,9 +116,14 @@ function matcherFor(event: CodexEvent): string {
   return "";
 }
 
-function hookCommand(event: string, input: InstallHarnessHooksInput, spoolPath: string): string {
+function hookCommand(
+  event: string,
+  input: InstallHarnessHooksInput,
+  spoolPath: string,
+  hookCommandPath: string
+): string {
   return [
-    "bench-my-harness",
+    shellQuote(hookCommandPath),
     "hook-capture",
     "--provider",
     "codex",
@@ -140,8 +173,4 @@ function assertInsideWorkspace(workspace: string, candidatePath: string, label: 
 
 function isNotFoundError(error: unknown): boolean {
   return typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT";
-}
-
-function shellQuote(value: string): string {
-  return `'${value.replaceAll("'", "'\\''")}'`;
 }

@@ -1,5 +1,5 @@
 import type { HarnessName } from "../ports/harness-runner-port.js";
-import type { SuiteResultStore } from "../ports/suite-result-store.js";
+import type { TrialProcessDiagnosticsRecord, SuiteResultStore } from "../ports/suite-result-store.js";
 import type { LoadedSpecCatalog } from "../../domain/benchmark/spec-catalog.js";
 import type { SuiteReport, SuiteTrialReport } from "../../domain/reports/suite-report.js";
 import { buildSuiteReport } from "../../domain/reports/suite-report.js";
@@ -16,6 +16,7 @@ export interface RunSpecSuiteInput {
   readonly workspaceRoot?: string;
   readonly catalogRoot: string;
   readonly strictTelemetry?: boolean;
+  readonly onProgress?: (message: string) => void;
 }
 
 export class RunSpecSuiteUseCase {
@@ -27,6 +28,9 @@ export class RunSpecSuiteUseCase {
     const trials = input.trials ?? input.loadedCatalog.catalog.defaults?.trials ?? 1;
     const workspaceRoot = input.workspaceRoot ?? input.loadedCatalog.catalog.defaults?.workspace_root ?? ".bmh/workspaces";
     const trialReports: SuiteTrialReport[] = [];
+    const processDiagnostics: TrialProcessDiagnosticsRecord[] = [];
+    const totalTrials = selectedSpecs.length * harnesses.length * trials;
+    let completedTrials = 0;
 
     if (!Number.isInteger(trials) || trials <= 0) {
       throw new Error(`suite trials must be a positive integer: ${trials}`);
@@ -36,6 +40,7 @@ export class RunSpecSuiteUseCase {
       for (const harness of harnesses) {
         for (let trialNumber = 1; trialNumber <= trials; trialNumber += 1) {
           const trialId = `${spec.id}_${harness}_trial_${trialNumber}`;
+          input.onProgress?.(`starting trial ${completedTrials + 1}/${totalTrials}: ${spec.id} ${harness}\n`);
           const result = await input.runner.runTrial({
             benchmark: spec.benchmark,
             harness,
@@ -47,6 +52,28 @@ export class RunSpecSuiteUseCase {
             strictTelemetry: input.strictTelemetry ?? input.loadedCatalog.catalog.defaults?.strict_telemetry
           });
 
+          const comparability = comparabilityFor(result);
+          const diagnosticsRefs = result.process_diagnostics === undefined
+            ? undefined
+            : processDiagnosticsRefs(spec.id, harness, trialId, result.process_diagnostics);
+          const processDiagnosticRefs = diagnosticsRefs?.process;
+          const diagnosticArtifactRefs = processDiagnosticRefs === undefined
+            ? []
+            : [
+                processDiagnosticRefs.stdout_ref,
+                processDiagnosticRefs.stderr_ref,
+                processDiagnosticRefs.exit_ref
+              ];
+
+          if (result.process_diagnostics !== undefined) {
+            processDiagnostics.push({
+              spec_id: spec.id,
+              harness,
+              trial_id: trialId,
+              diagnostics: result.process_diagnostics
+            });
+          }
+
           trialReports.push({
             spec_id: spec.id,
             spec_version: spec.benchmark.version,
@@ -57,16 +84,18 @@ export class RunSpecSuiteUseCase {
             score: result.status === "completed" ? 1 : 0,
             tags: spec.tags,
             workspace: result.workspace,
+            hook_event_count: result.hook_event_count,
+            hook_command: result.hook_command,
+            workspace_source: result.workspace_source,
             artifact_refs: [
-              `specs/${spec.id}/${harness}/trial_${trialNumber}/result.json`,
-              `specs/${spec.id}/${harness}/trial_${trialNumber}/diff.patch`,
-              `specs/${spec.id}/${harness}/trial_${trialNumber}/test-output.txt`,
-              `specs/${spec.id}/${harness}/trial_${trialNumber}/transcript.jsonl`
+              `specs/${spec.id}/${harness}/${trialId}/result.json`,
+              `specs/${spec.id}/${harness}/${trialId}/diff.patch`,
+              `specs/${spec.id}/${harness}/${trialId}/test-output.txt`,
+              `specs/${spec.id}/${harness}/${trialId}/transcript.jsonl`,
+              ...diagnosticArtifactRefs
             ],
-            comparability: {
-              status: "limited" as const,
-              reasons: ["token, cost, and context metrics may be unavailable without native usage capture"]
-            },
+            diagnostics: diagnosticsRefs,
+            comparability,
             metrics: [
               {
                 metric: "token_usage",
@@ -94,6 +123,10 @@ export class RunSpecSuiteUseCase {
             ],
             notes: []
           });
+          completedTrials += 1;
+          input.onProgress?.(
+            `trial completed: ${spec.id} ${harness} ${result.status} duration=${result.process_diagnostics?.exit.duration_ms ?? 0} hooks=${result.hook_event_count ?? 0}\n`
+          );
         }
       }
     }
@@ -112,7 +145,8 @@ export class RunSpecSuiteUseCase {
     await this.resultStore?.save({
       runId: input.runId,
       trials: trialReports,
-      report
+      report,
+      processDiagnostics
     });
 
     return report;
@@ -132,4 +166,44 @@ export class RunSpecSuiteUseCase {
       return matchesId && matchesTag;
     });
   }
+}
+
+function processDiagnosticsRefs(
+  specId: string,
+  harness: HarnessName,
+  trialId: string,
+  diagnostics: NonNullable<Awaited<ReturnType<BenchmarkRunner["runTrial"]>>["process_diagnostics"]>
+): NonNullable<SuiteTrialReport["diagnostics"]> {
+  const base = `specs/${specId}/${harness}/${trialId}`;
+
+  return {
+    process: {
+      stdout_ref: `${base}/process-stdout.txt`,
+      stderr_ref: `${base}/process-stderr.txt`,
+      exit_ref: `${base}/process-exit.json`,
+      exit_code: diagnostics.exit.exit_code,
+      timed_out: diagnostics.exit.timed_out,
+      started_at: diagnostics.exit.started_at,
+      ended_at: diagnostics.exit.ended_at,
+      duration_ms: diagnostics.exit.duration_ms
+    }
+  };
+}
+
+function comparabilityFor(result: Awaited<ReturnType<BenchmarkRunner["runTrial"]>>): SuiteTrialReport["comparability"] {
+  if (result.status !== "completed") {
+    return {
+      status: "limited",
+      reasons: ["trial did not complete successfully"]
+    };
+  }
+
+  if (result.workspace_source?.type === "git" && result.workspace_source.resolved_base_sha !== undefined) {
+    return { status: "comparable", reasons: [] };
+  }
+
+  return {
+    status: "limited",
+    reasons: ["workspace source provenance is unavailable"]
+  };
 }

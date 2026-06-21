@@ -111,7 +111,17 @@ describe("CLI spec catalog and suite execution", () => {
       "login-validation:claude_code:completed"
     ]);
     expect(output.stderr()).toBe("");
-    await expect(stat(join(cwd, ".bmh", "runs", "run_suite_cli", "specs", "login-validation", "codex", "trial_1", "result.json"))).resolves.toBeDefined();
+    await expect(stat(join(
+      cwd,
+      ".bmh",
+      "runs",
+      "run_suite_cli",
+      "specs",
+      "login-validation",
+      "codex",
+      "login-validation_codex_trial_1",
+      "result.json"
+    ))).resolves.toBeDefined();
   });
 
   test("specs create --from-git creates a review-needed backward draft from local git evidence", async () => {

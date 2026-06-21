@@ -1,7 +1,10 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
-import type { SuiteResultStore } from "../../../application/ports/suite-result-store.js";
+import type {
+  SuiteResultStore,
+  TrialProcessDiagnosticsRecord
+} from "../../../application/ports/suite-result-store.js";
 import type { SuiteReport, SuiteTrialReport } from "../../../domain/reports/suite-report.js";
 import { buildSuiteReport, renderSuiteReportHtml } from "../../../domain/reports/suite-report.js";
 
@@ -12,6 +15,7 @@ export class FilesystemSuiteResultStore implements SuiteResultStore {
     runId: string;
     trials: readonly SuiteTrialReport[];
     report: SuiteReport;
+    processDiagnostics?: readonly TrialProcessDiagnosticsRecord[];
   }): Promise<void> {
     const runDir = this.runDir(input.runId);
     await mkdir(runDir, { recursive: true });
@@ -22,6 +26,10 @@ export class FilesystemSuiteResultStore implements SuiteResultStore {
       const trialPath = this.trialPath(input.runId, trial);
       await mkdir(dirname(trialPath), { recursive: true });
       await writeFile(trialPath, `${JSON.stringify(trial, null, 2)}\n`, "utf8");
+    }
+
+    for (const diagnostic of input.processDiagnostics ?? []) {
+      await this.writeProcessDiagnostics(input.runId, diagnostic);
     }
   }
 
@@ -42,7 +50,23 @@ export class FilesystemSuiteResultStore implements SuiteResultStore {
   }
 
   private trialPath(runId: string, trial: SuiteTrialReport): string {
-    return join(this.runDir(runId), "specs", trial.spec_id, trial.harness, storageTrialId(trial), "result.json");
+    return join(this.runDir(runId), "specs", trial.spec_id, trial.harness, trial.trial_id, "result.json");
+  }
+
+  private async writeProcessDiagnostics(
+    runId: string,
+    record: TrialProcessDiagnosticsRecord
+  ): Promise<void> {
+    const trialDir = join(this.runDir(runId), "specs", record.spec_id, record.harness, record.trial_id);
+
+    await mkdir(trialDir, { recursive: true });
+    await writeFile(join(trialDir, "process-stdout.txt"), record.diagnostics.stdout, "utf8");
+    await writeFile(join(trialDir, "process-stderr.txt"), record.diagnostics.stderr, "utf8");
+    await writeFile(
+      join(trialDir, "process-exit.json"),
+      `${JSON.stringify(record.diagnostics.exit, null, 2)}\n`,
+      "utf8"
+    );
   }
 
   private runDir(runId: string): string {
@@ -52,11 +76,6 @@ export class FilesystemSuiteResultStore implements SuiteResultStore {
 
     return join(this.options.root, runId);
   }
-}
-
-function storageTrialId(trial: SuiteTrialReport): string {
-  const prefix = `${trial.spec_id}_${trial.harness}_`;
-  return trial.trial_id.startsWith(prefix) ? trial.trial_id.slice(prefix.length) : trial.trial_id;
 }
 
 function isNotFoundError(error: unknown): boolean {
@@ -93,12 +112,16 @@ function normalizeStoredSuiteReport(value: unknown): SuiteReport {
       failure_classification?: string;
       score?: number;
       duration_ms?: number;
+      hook_event_count?: number;
+      hook_command?: SuiteTrialReport["hook_command"];
       metrics?: unknown;
       artifacts?: string[];
       artifact_refs?: string[];
+      diagnostics?: SuiteTrialReport["diagnostics"];
       comparability?: { status: "comparable" | "limited" | "not_comparable"; reasons?: string[] };
       notes?: string[];
       tags?: string[];
+      workspace_source?: SuiteTrialReport["workspace_source"];
     };
     const spec = specs.find((entry) => entry.id === trial.spec_id);
 
@@ -111,8 +134,12 @@ function normalizeStoredSuiteReport(value: unknown): SuiteReport {
       failure_classification: trial.failure_classification,
       score: trial.score ?? 0,
       duration_ms: trial.duration_ms,
+      hook_event_count: trial.hook_event_count,
+      hook_command: trial.hook_command,
       tags: trial.tags ?? spec?.tags ?? [],
+      workspace_source: trial.workspace_source,
       artifact_refs: trial.artifact_refs ?? trial.artifacts ?? [],
+      diagnostics: trial.diagnostics,
       comparability: {
         status: trial.comparability?.status ?? "limited",
         reasons: trial.comparability?.reasons ?? []

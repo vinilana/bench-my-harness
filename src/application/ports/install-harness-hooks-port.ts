@@ -22,6 +22,11 @@ export interface HookInstallation {
   workspace?: string;
   files: string[];
   generatedFiles?: GeneratedHookFile[];
+  hookCommand?: {
+    strategy: "workspace_shim";
+    command: string;
+    shimPath?: string;
+  };
 }
 
 export interface InstallHarnessHooksPort {

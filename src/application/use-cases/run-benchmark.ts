@@ -1,13 +1,26 @@
 import type { ArtifactCollectorPort } from "../ports/artifact-collector-port.js";
+import type { DiffGeneratorPort } from "../ports/diff-generator-port.js";
+import type { HookEventCounterPort } from "../ports/hook-event-counter-port.js";
 import type { HookInstallation, InstallHarnessHooksPort } from "../ports/install-harness-hooks-port.js";
-import type { HarnessName, HarnessRunnerPort } from "../ports/harness-runner-port.js";
+import type { HarnessName, HarnessRunnerPort, ProcessDiagnostics } from "../ports/harness-runner-port.js";
 import type { ValidationRunnerPort, ValidationRunnerResult } from "../ports/validation-runner-port.js";
-import type { WorkspaceProvisionerPort } from "../ports/workspace-provisioner-port.js";
+import type {
+  ProvisionWorkspaceInput,
+  WorkspaceProvisionerPort,
+  WorkspaceSource,
+  WorkspaceSourceProvenance
+} from "../ports/workspace-provisioner-port.js";
 import type { ResolveBenchmarkPromptUseCase } from "./resolve-benchmark-prompt.js";
 
 interface BenchmarkPrompt {
   text?: string;
   file?: string;
+}
+
+interface BenchmarkRepoSource extends BenchmarkCommandSource {
+  url?: string;
+  base_ref?: string;
+  golden_ref?: string;
 }
 
 interface BenchmarkCommandSource {
@@ -18,7 +31,7 @@ interface BenchmarkCommandSource {
 interface BenchmarkDefinition {
   id: string;
   version: string;
-  repo?: BenchmarkCommandSource;
+  repo?: BenchmarkRepoSource;
   fixture?: BenchmarkCommandSource;
   prompt: BenchmarkPrompt;
   limits?: {
@@ -49,6 +62,10 @@ export interface RunTrialResult {
   status: "completed" | "failed";
   failure_classification?: TrialFailureClassification;
   workspace: string;
+  workspace_source?: WorkspaceSourceProvenance;
+  process_diagnostics?: ProcessDiagnostics;
+  hook_command?: HookInstallation["hookCommand"];
+  hook_event_count?: number;
 }
 
 export interface RunBenchmarkInput {
@@ -82,21 +99,32 @@ export class BenchmarkRunner {
       harnessRunner: HarnessRunnerPort;
       promptResolver?: ResolveBenchmarkPromptUseCase;
       validationRunner?: ValidationRunnerPort;
+      diffGenerator?: DiffGeneratorPort;
+      hookEventCounter?: HookEventCounterPort;
       artifactCollector: ArtifactCollectorPort;
       workspaceProvisioner: WorkspaceProvisionerPort;
     }
   ) {}
 
   public async runTrial(input: RunTrialInput): Promise<RunTrialResult> {
-    const { workspace, spoolPath } = await this.ports.workspaceProvisioner.provision({
-      workspaceRoot: input.workspaceRoot,
-      trialId: input.trialId
-    });
+    const requestedSource = workspaceSourceFor(input.benchmark);
+    const { workspace, spoolPath, workspaceSource } = await this.ports.workspaceProvisioner.provision(
+      provisionWorkspaceInput(input, requestedSource)
+    );
 
     let installation: HookInstallation | undefined;
     let result: RunTrialResult;
 
     try {
+      if (requestedSource?.type === "git" && workspaceSource?.resolved_base_sha === undefined) {
+        return {
+          status: "failed",
+          failure_classification: "environment_failed",
+          workspace,
+          workspace_source: workspaceSource
+        };
+      }
+
       const resolvedPrompt = await this.resolvePrompt(input);
 
       installation = await this.ports.hookInstaller.install({
@@ -133,47 +161,98 @@ export class BenchmarkRunner {
       const harnessSucceeded = !harnessResult.timedOut && harnessResult.exitCode === 0;
       let validationResult: ValidationRunnerResult | undefined;
       let testOutputPath = harnessResult.testOutputPath;
+      let diffPath = harnessResult.diffPath;
 
       if (harnessSucceeded) {
         validationResult = await this.runValidationIfConfigured(input, workspace);
         testOutputPath = validationResult?.testOutputPath ?? testOutputPath;
       }
 
+      diffPath = await this.generateDiffIfConfigured(workspace, diffPath, workspaceSource);
+
       await this.ports.artifactCollector.collect({
         runId: input.runId,
         trialId: input.trialId,
         workspace,
         transcriptPath: harnessResult.transcriptPath,
-        diffPath: harnessResult.diffPath,
+        diffPath,
         testOutputPath
       });
+      const hookEventCount = await this.countHookEvents(spoolPath);
 
       if (harnessResult.timedOut) {
-        result = { status: "failed", failure_classification: "timeout", workspace };
+        result = {
+          status: "failed",
+          failure_classification: "timeout",
+          workspace,
+          workspace_source: workspaceSource,
+          process_diagnostics: harnessResult.processDiagnostics,
+          hook_command: installation.hookCommand,
+          hook_event_count: hookEventCount
+        };
       } else if (harnessResult.exitCode !== 0) {
-        result = { status: "failed", failure_classification: "agent_failed", workspace };
+        result = {
+          status: "failed",
+          failure_classification: harnessResult.failureClassification ?? "agent_failed",
+          workspace,
+          workspace_source: workspaceSource,
+          process_diagnostics: harnessResult.processDiagnostics,
+          hook_command: installation.hookCommand,
+          hook_event_count: hookEventCount
+        };
       } else if (validationResult?.status === "failed") {
         result = {
           status: "failed",
           failure_classification: validationResult.failedPhase === "setup" ? "environment_failed" : "agent_failed",
-          workspace
+          workspace,
+          workspace_source: workspaceSource,
+          process_diagnostics: harnessResult.processDiagnostics,
+          hook_command: installation.hookCommand,
+          hook_event_count: hookEventCount
         };
       } else {
-        result = { status: "completed", workspace };
+        result = {
+          status: "completed",
+          workspace,
+          workspace_source: workspaceSource,
+          process_diagnostics: harnessResult.processDiagnostics,
+          hook_command: installation.hookCommand,
+          hook_event_count: hookEventCount
+        };
       }
     } catch {
-      result = { status: "failed", failure_classification: "adapter_failed", workspace };
+      result = { status: "failed", failure_classification: "adapter_failed", workspace, workspace_source: workspaceSource };
     }
 
     if (installation) {
       try {
         await this.ports.hookInstaller.uninstall(installation);
       } catch {
-        return { status: "failed", failure_classification: "adapter_failed", workspace };
+        return { status: "failed", failure_classification: "adapter_failed", workspace, workspace_source: workspaceSource };
       }
     }
 
     return result;
+  }
+
+  private async countHookEvents(spoolPath: string): Promise<number | undefined> {
+    return this.ports.hookEventCounter?.count({ spoolPath });
+  }
+
+  private async generateDiffIfConfigured(
+    workspace: string,
+    existingDiffPath: string | undefined,
+    workspaceSource: WorkspaceSourceProvenance | undefined
+  ): Promise<string | undefined> {
+    if (
+      existingDiffPath !== undefined ||
+      workspaceSource?.type !== "git" ||
+      this.ports.diffGenerator === undefined
+    ) {
+      return existingDiffPath;
+    }
+
+    return (await this.ports.diffGenerator.generate({ workspace })).diffPath;
   }
 
   private async runValidationIfConfigured(
@@ -269,4 +348,30 @@ export class BenchmarkRunner {
 
     throw new Error("Benchmark prompt must define text or file");
   }
+}
+
+function workspaceSourceFor(benchmark: BenchmarkDefinition): WorkspaceSource | undefined {
+  if (benchmark.repo?.url === undefined || benchmark.repo.base_ref === undefined) {
+    return undefined;
+  }
+
+  return {
+    type: "git",
+    repoUrl: benchmark.repo.url,
+    baseRef: benchmark.repo.base_ref,
+    goldenRef: benchmark.repo.golden_ref
+  };
+}
+
+function provisionWorkspaceInput(input: RunTrialInput, source: WorkspaceSource | undefined): ProvisionWorkspaceInput {
+  const provisionInput: ProvisionWorkspaceInput = {
+    workspaceRoot: input.workspaceRoot,
+    trialId: input.trialId
+  };
+
+  if (source !== undefined) {
+    provisionInput.source = source;
+  }
+
+  return provisionInput;
 }

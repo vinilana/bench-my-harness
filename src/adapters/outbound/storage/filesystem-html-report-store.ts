@@ -287,9 +287,13 @@ function renderTrial(trial: HtmlTrial, tags: readonly string[]): string {
 <p>Status: ${escapeHtml(trial.status)}${trial.failure_classification ? ` · Failure: ${escapeHtml(trial.failure_classification)}` : ""} · Score: ${formatNumber(trial.score)}${trial.duration_ms === undefined ? "" : ` · Duration: ${formatNumber(trial.duration_ms)} ms`}</p>
 <p>Metrics: ${trial.metrics.map((metric) => `${escapeHtml(metric.metric)} ${escapeHtml(metric.measurement_source)} (${escapeHtml(metric.capture_source)}/${escapeHtml(metric.confidence)})`).join(", ")}</p>
 <p>Comparability: ${escapeHtml(trial.comparability.status)} ${trial.comparability.reasons.map(escapeHtml).join("; ")}</p>
-<p>Artifacts: ${trial.artifact_refs.map((artifact) => `<code>${escapeHtml(artifact)}</code>`).join(" ") || "none"}</p>
+<p>Artifacts: ${trial.artifact_refs.map(renderArtifactLink).join(" ") || "none"}</p>
 <p>Notes: ${trial.notes.map(escapeHtml).join("; ") || "none"}</p>
 </article>`;
+}
+
+function renderArtifactLink(artifact: string): string {
+  return `<a href="${escapeHtml(artifact)}"><code>${escapeHtml(artifact)}</code></a>`;
 }
 
 function renderSelect(id: string, label: string, values: readonly string[]): string {

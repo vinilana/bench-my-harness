@@ -20,7 +20,7 @@ describe("hook installers", () => {
     expect(installation.files.every((file: string) => file.startsWith(workspace))).toBe(true);
 
     const hooks = await readFile(join(workspace, ".codex", "hooks.json"), "utf8");
-    expect(hooks).toContain("bench-my-harness hook-capture --provider codex");
+    expect(hooks).toContain("bench-my-harness' hook-capture --provider codex");
     expect(hooks).toContain("PreToolUse");
     expect(hooks).toContain("PostToolUse");
     expect(hooks).toContain("Stop");
@@ -40,7 +40,7 @@ describe("hook installers", () => {
     expect(installation.files.every((file: string) => file.startsWith(workspace))).toBe(true);
 
     const settings = await readFile(join(workspace, ".claude", "settings.local.json"), "utf8");
-    expect(settings).toContain("bench-my-harness hook-capture --provider claude_code");
+    expect(settings).toContain("bench-my-harness' hook-capture --provider claude_code");
     expect(settings).toContain("PreToolUse");
     expect(settings).toContain("PermissionRequest");
     expect(settings).toContain("SessionEnd");

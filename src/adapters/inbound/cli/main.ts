@@ -1,8 +1,8 @@
 #!/usr/bin/env node
-import { readFile, readdir, stat } from "node:fs/promises";
+import { access, chmod, mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { Command, CommanderError } from "commander";
 import { z } from "zod";
 import { CreateBenchmarkTemplateUseCase } from "../../../application/use-cases/create-benchmark-template.js";
@@ -10,9 +10,16 @@ import { BenchmarkRunner } from "../../../application/use-cases/run-benchmark.js
 import type { ArtifactCollectorPort } from "../../../application/ports/artifact-collector-port.js";
 import type { HarnessRunnerPort } from "../../../application/ports/harness-runner-port.js";
 import type { InstallHarnessHooksPort } from "../../../application/ports/install-harness-hooks-port.js";
+import type {
+  ProvisionWorkspaceInput,
+  ProvisionedWorkspace,
+  WorkspaceProvisionerPort
+} from "../../../application/ports/workspace-provisioner-port.js";
 import { ClaudeCodeHookInstaller } from "../../outbound/harnesses/claude-code/claude-code-hook-installer.js";
 import { CodexHookInstaller } from "../../outbound/harnesses/codex/codex-hook-installer.js";
 import { FilesystemWorkspaceProvisioner } from "../../outbound/filesystem/filesystem-workspace-provisioner.js";
+import { FilesystemGitDiffGenerator } from "../../outbound/filesystem/filesystem-git-diff-generator.js";
+import { FilesystemHookEventCounter } from "../../outbound/filesystem/filesystem-hook-event-counter.js";
 import { ProcessHarnessRunner } from "../../outbound/harnesses/process-harness-runner.js";
 import { ProcessValidationRunner } from "../../outbound/harnesses/process-validation-runner.js";
 import { FilesystemBenchmarkTemplateWriter } from "../../outbound/filesystem/filesystem-benchmark-template-writer.js";
@@ -268,8 +275,9 @@ export function buildProgram(context: CliContext): Command {
             })
           : new DryRunHarnessRunner(),
         validationRunner: options.runValidation ? new ProcessValidationRunner() : undefined,
+        diffGenerator: options.dryRun ? undefined : new FilesystemGitDiffGenerator(),
         artifactCollector: new DryRunArtifactCollector(),
-        workspaceProvisioner: new FilesystemWorkspaceProvisioner(),
+        workspaceProvisioner: options.dryRun ? new DryRunWorkspaceProvisioner() : new FilesystemWorkspaceProvisioner(),
         promptResolver: new ResolveBenchmarkPromptUseCase(new FilesystemPromptFileReader())
       });
       const result = await runner.runTrial({
@@ -563,23 +571,48 @@ export function buildProgram(context: CliContext): Command {
     .option("--strict-telemetry", "fail trials on telemetry failures")
     .option("--no-strict-telemetry", "do not fail trials on telemetry failures")
     .option("--dry-run", "use a fake harness runner", false)
+    .option("--real", "run real harness processes", false)
+    .option("--harness-command-json <json>", "JSON command config for suite process harnesses")
     .action(async (options: SpecsRunOptions) => {
       const loaded = await new LoadSpecCatalogUseCase(new FilesystemSpecCatalogStore()).execute({
         catalogRoot: resolvePath(context.cwd, options.catalogRoot ?? ".bmh/specs")
       });
       const harnessOptions = options.harness ?? [];
       const harnesses = hasEntries(harnessOptions) ? harnessOptions.map(parseProvider) : undefined;
+      const resolvedHarnesses = harnesses ?? loaded.catalog.defaults?.harnesses ?? ["codex", "claude_code"];
 
-      if (options.dryRun !== true) {
+      if (options.dryRun === true && options.real === true) {
+        context.stderr("spec suite cannot use --real and --dry-run together\n");
+        throw new CliExit(EX_USAGE, "spec suite real and dry-run modes are mutually exclusive");
+      }
+
+      if (options.dryRun !== true && options.real !== true) {
         context.stderr("spec suite real harness execution is not configured for this CLI build; rerun with --dry-run\n");
         throw new CliExit(EX_CONFIG, "spec suite real harness execution is not configured");
       }
 
+      let suiteCommands: Partial<Record<HookCaptureProvider, HarnessCommand>> | undefined;
+      if (options.real === true) {
+        try {
+          suiteCommands = await resolveSuiteHarnessCommands({
+              cwd: context.cwd,
+              env: context.env,
+              harnesses: resolvedHarnesses,
+              overrideJson: options.harnessCommandJson
+            });
+        } catch (error) {
+          context.stderr(`${formatError(error)}\n`);
+          throw new CliExit(EX_CONFIG, "real harness command resolution failed");
+        }
+      }
       const runner = new BenchmarkRunner({
-        hookInstaller: new DryRunHookInstaller(),
-        harnessRunner: new DryRunHarnessRunner(),
+        hookInstaller: options.real === true ? new DelegatingHookInstaller() : new DryRunHookInstaller(),
+        harnessRunner: suiteCommands ? new ProcessHarnessRunner(suiteCommands) : new DryRunHarnessRunner(),
+        validationRunner: options.real === true ? new ProcessValidationRunner() : undefined,
+        diffGenerator: options.real === true ? new FilesystemGitDiffGenerator() : undefined,
+        hookEventCounter: options.real === true ? new FilesystemHookEventCounter() : undefined,
         artifactCollector: new DryRunArtifactCollector(),
-        workspaceProvisioner: new FilesystemWorkspaceProvisioner(),
+        workspaceProvisioner: options.real === true ? new FilesystemWorkspaceProvisioner() : new DryRunWorkspaceProvisioner(),
         promptResolver: new ResolveBenchmarkPromptUseCase(new FilesystemPromptFileReader())
       });
       const report = await new RunSpecSuiteUseCase(new FilesystemSuiteResultStore({
@@ -588,13 +621,14 @@ export function buildProgram(context: CliContext): Command {
         loadedCatalog: loaded,
         runner,
         runId: options.runId,
-        harnesses,
+        harnesses: resolvedHarnesses,
         specIds: options.spec,
         tags: options.tag,
         trials: options.trials,
         workspaceRoot: resolvePath(context.cwd, options.workspaceRoot ?? loaded.catalog.defaults?.workspace_root ?? ".bmh/workspaces"),
         catalogRoot: resolvePath(context.cwd, options.catalogRoot ?? ".bmh/specs"),
-        strictTelemetry: options.strictTelemetry
+        strictTelemetry: options.strictTelemetry,
+        onProgress: options.real === true ? context.stdout : undefined
       });
 
       context.stdout(`spec suite run complete: ${report.run_id} (${report.trial_count} trials)\n`);
@@ -614,8 +648,9 @@ export function buildProgram(context: CliContext): Command {
       const runner = new BenchmarkRunner({
         hookInstaller: new DryRunHookInstaller(),
         harnessRunner: new DryRunHarnessRunner(),
+        diffGenerator: undefined,
         artifactCollector: new DryRunArtifactCollector(),
-        workspaceProvisioner: new FilesystemWorkspaceProvisioner(),
+        workspaceProvisioner: new DryRunWorkspaceProvisioner(),
         promptResolver: new ResolveBenchmarkPromptUseCase(new FilesystemPromptFileReader())
       });
       const report = await new RunSpecSuiteSmokeUseCase(new FilesystemSuiteResultStore({
@@ -771,6 +806,8 @@ interface SpecsRunOptions extends SpecsCatalogOptions {
   readonly trials?: number;
   readonly strictTelemetry?: boolean;
   readonly dryRun?: boolean;
+  readonly real?: boolean;
+  readonly harnessCommandJson?: string;
 }
 
 interface SpecsImportOptions extends SpecsCatalogOptions {
@@ -1131,6 +1168,165 @@ function parseHarnessCommandJson(json: string): { command: HarnessCommand; env: 
   };
 }
 
+async function resolveSuiteHarnessCommands(input: {
+  cwd: string;
+  env: NodeJS.ProcessEnv;
+  harnesses: readonly HookCaptureProvider[];
+  overrideJson?: string;
+}): Promise<Partial<Record<HookCaptureProvider, HarnessCommand>>> {
+  const hookBinDir = await ensureLocalHookCommandShim(input.cwd);
+  const overrides = input.overrideJson === undefined
+    ? {}
+    : parseSuiteHarnessCommandJson(input.overrideJson, input.harnesses);
+  const commands: Partial<Record<HookCaptureProvider, HarnessCommand>> = {};
+
+  for (const harness of input.harnesses) {
+    const command = overrides[harness] ?? defaultHarnessCommand(harness);
+    await assertExecutableAvailable(harness, command.executable, input.env);
+    commands[harness] = {
+      ...command,
+      env: {
+        ...(command.env ?? {}),
+        PATH: prependPath(hookBinDir, command.env?.PATH ?? input.env.PATH ?? "")
+      }
+    };
+  }
+
+  return commands;
+}
+
+function parseSuiteHarnessCommandJson(
+  json: string,
+  harnesses: readonly HookCaptureProvider[]
+): Partial<Record<HookCaptureProvider, HarnessCommand>> {
+  const parsed = JSON.parse(json) as unknown;
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("suite harness command JSON must be an object");
+  }
+
+  const record = parsed as Record<string, unknown>;
+  if ("executable" in record) {
+    if (harnesses.length !== 1) {
+      throw new Error("single harness command JSON requires exactly one selected harness");
+    }
+
+    return { [harnesses[0]]: parseHarnessCommandJson(json).command };
+  }
+
+  return Object.fromEntries(
+    Object.entries(record).map(([provider, value]) => {
+      const harness = parseProvider(provider);
+      return [harness, parseHarnessCommandJson(JSON.stringify(value)).command];
+    })
+  ) as Partial<Record<HookCaptureProvider, HarnessCommand>>;
+}
+
+function defaultHarnessCommand(harness: HookCaptureProvider): HarnessCommand {
+  if (harness === "codex") {
+    return {
+      executable: "codex",
+      args: ["exec", "--skip-git-repo-check", "--sandbox", "workspace-write", "--dangerously-bypass-hook-trust", "-"],
+      promptDelivery: "stdin"
+    };
+  }
+
+  return {
+    executable: "claude",
+    args: ["-p"],
+    promptDelivery: "stdin"
+  };
+}
+
+async function ensureLocalHookCommandShim(cwd: string): Promise<string> {
+  const binDir = resolvePath(cwd, ".bmh/bin");
+  const shimPath = join(binDir, "bench-my-harness");
+  const cliPath = fileURLToPath(import.meta.url);
+  const script = [
+    "#!/usr/bin/env bash",
+    "set -euo pipefail",
+    "if [ \"${1:-}\" = \"hook-capture\" ]; then",
+    `  exec node -e ${shellQuote(hookCaptureShimJavaScript())} "$@"`,
+    "fi",
+    `exec node ${shellQuote(cliPath)} "$@"`,
+    ""
+  ].join("\n");
+
+  await mkdir(binDir, { recursive: true });
+  await writeFile(shimPath, script, "utf8");
+  await chmod(shimPath, 0o755);
+
+  return binDir;
+}
+
+async function assertExecutableAvailable(harness: HookCaptureProvider, executable: string, env: NodeJS.ProcessEnv): Promise<void> {
+  if (executable.includes("/") || isAbsolute(executable)) {
+    try {
+      await access(executable);
+    } catch {
+      throw new Error(`${harness} environment_failed: harness executable not found: ${executable}`);
+    }
+    return;
+  }
+
+  const pathEntries = (env.PATH ?? "").split(":").filter((entry) => entry.length > 0);
+  for (const entry of pathEntries) {
+    try {
+      await access(join(entry, executable));
+      return;
+    } catch {
+      // keep searching PATH
+    }
+  }
+
+  throw new Error(`${harness} environment_failed: harness executable not found on PATH: ${executable}`);
+}
+
+function prependPath(entry: string, path: string): string {
+  return path.length === 0 ? entry : `${entry}:${path}`;
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", "'\\''")}'`;
+}
+
+function hookCaptureShimJavaScript(): string {
+  return `
+const fs = require("node:fs");
+const path = require("node:path");
+const args = process.argv.slice(1);
+const opt = (name) => {
+  const index = args.indexOf(name);
+  return index >= 0 ? args[index + 1] : undefined;
+};
+const spool = opt("--spool");
+let input = "";
+process.stdin.setEncoding("utf8");
+process.stdin.on("data", (chunk) => input += chunk);
+process.stdin.on("end", () => {
+  if (!spool) {
+    process.exitCode = 64;
+    return;
+  }
+  let payload;
+  try {
+    payload = input.trim().length === 0 ? {} : JSON.parse(input);
+  } catch {
+    payload = { raw: input };
+  }
+  fs.mkdirSync(path.dirname(spool), { recursive: true });
+  fs.appendFileSync(spool, JSON.stringify({
+    schema_version: "bmh.hook_capture.v1",
+    provider: opt("--provider"),
+    event: opt("--event"),
+    run_id: opt("--run-id"),
+    trial_id: opt("--trial-id"),
+    captured_at: new Date().toISOString(),
+    payload
+  }) + "\\n");
+});
+`;
+}
+
 function parseStringRecord(value: unknown, label: string): Record<string, string> {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
     throw new Error(`harness command JSON ${label} must be an object`);
@@ -1287,9 +1483,47 @@ class DryRunHookInstaller implements InstallHarnessHooksPort {
   public async uninstall(): Promise<void> {}
 }
 
+class DelegatingHookInstaller implements InstallHarnessHooksPort {
+  public async install(input: Parameters<InstallHarnessHooksPort["install"]>[0]) {
+    return hookInstallerFor(input.harness ?? "codex").install(input);
+  }
+
+  public async uninstall(installation: Parameters<InstallHarnessHooksPort["uninstall"]>[0]): Promise<void> {
+    if (installation.provider === undefined) {
+      return;
+    }
+
+    await hookInstallerFor(installation.provider).uninstall(installation);
+  }
+}
+
 class DryRunHarnessRunner implements HarnessRunnerPort {
   public async execute(): Promise<{ exitCode: number; stdout: string; stderr: string }> {
     return { exitCode: 0, stdout: "dry-run", stderr: "" };
+  }
+}
+
+class DryRunWorkspaceProvisioner implements WorkspaceProvisionerPort {
+  public async provision(input: ProvisionWorkspaceInput): Promise<ProvisionedWorkspace> {
+    const workspace = join(input.workspaceRoot, input.trialId);
+    const spoolPath = join(workspace, ".bmh", "hooks.jsonl");
+
+    await mkdir(dirname(spoolPath), { recursive: true });
+
+    return {
+      workspace,
+      spoolPath,
+      workspaceSource: input.source?.type === "git"
+        ? {
+            type: "git",
+            repo_url: input.source.repoUrl,
+            base_ref: input.source.baseRef,
+            resolved_base_sha: input.source.baseRef,
+            golden_ref: input.source.goldenRef,
+            resolved_golden_sha: input.source.goldenRef
+          }
+        : undefined
+    };
   }
 }
 

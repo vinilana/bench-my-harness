@@ -6,6 +6,11 @@ import type {
   InstallHarnessHooksInput,
   InstallHarnessHooksPort
 } from "../../../../application/ports/install-harness-hooks-port.js";
+import {
+  createRunLocalHookCommandShim,
+  shellQuote,
+  type HookCommandResolver
+} from "../hook-command-resolution.js";
 
 const CLAUDE_CODE_EVENTS = [
   "SessionStart",
@@ -23,22 +28,41 @@ const CLAUDE_CODE_EVENTS = [
 
 type ClaudeCodeEvent = (typeof CLAUDE_CODE_EVENTS)[number];
 
+export interface ClaudeCodeHookInstallerOptions {
+  readonly hookCommandResolver?: HookCommandResolver;
+}
+
 export class ClaudeCodeHookInstaller implements InstallHarnessHooksPort {
+  private readonly hookCommandResolver: HookCommandResolver;
+
+  public constructor(options: ClaudeCodeHookInstallerOptions = {}) {
+    this.hookCommandResolver = options.hookCommandResolver ?? createRunLocalHookCommandShim;
+  }
+
   public async install(input: InstallHarnessHooksInput): Promise<HookInstallation> {
     const workspace = resolve(input.workspace);
     const spoolPath = resolve(input.spoolPath);
     assertInsideWorkspace(workspace, spoolPath, "spoolPath");
 
+    const hookCommandResolution = await this.hookCommandResolver({ workspace });
     const settingsPath = join(workspace, ".claude", "settings.local.json");
     assertInsideWorkspace(workspace, settingsPath, "Claude Code hook config");
-    const generatedFile = await writeGeneratedJsonFile(settingsPath, buildClaudeCodeSettings(input, spoolPath));
+    const generatedFile = await writeGeneratedJsonFile(
+      settingsPath,
+      buildClaudeCodeSettings(input, spoolPath, hookCommandResolution.command)
+    );
 
     return {
       id: `claude-code-hooks:${input.runId}:${input.trialId}`,
       provider: "claude_code",
       workspace,
-      files: [settingsPath],
-      generatedFiles: [generatedFile]
+      files: [settingsPath, hookCommandResolution.shimPath],
+      generatedFiles: [generatedFile, ...hookCommandResolution.generatedFiles],
+      hookCommand: {
+        strategy: hookCommandResolution.strategy,
+        command: hookCommandResolution.command,
+        shimPath: hookCommandResolution.shimPath
+      }
     };
   }
 
@@ -64,14 +88,18 @@ export class ClaudeCodeHookInstaller implements InstallHarnessHooksPort {
   }
 }
 
-function buildClaudeCodeSettings(input: InstallHarnessHooksInput, spoolPath: string): { hooks: Record<ClaudeCodeEvent, unknown[]> } {
+function buildClaudeCodeSettings(
+  input: InstallHarnessHooksInput,
+  spoolPath: string,
+  hookCommandPath: string
+): { hooks: Record<ClaudeCodeEvent, unknown[]> } {
   const hooks = Object.fromEntries(
     CLAUDE_CODE_EVENTS.map((event) => [
       event,
       [
         {
           matcher: matcherFor(event),
-          hooks: [{ type: "command", command: hookCommand(event, input, spoolPath), timeout: 5 }]
+          hooks: [{ type: "command", command: hookCommand(event, input, spoolPath, hookCommandPath), timeout: 5 }]
         }
       ]
     ])
@@ -94,9 +122,14 @@ function matcherFor(event: ClaudeCodeEvent): string {
   return "";
 }
 
-function hookCommand(event: string, input: InstallHarnessHooksInput, spoolPath: string): string {
+function hookCommand(
+  event: string,
+  input: InstallHarnessHooksInput,
+  spoolPath: string,
+  hookCommandPath: string
+): string {
   return [
-    "bench-my-harness",
+    shellQuote(hookCommandPath),
     "hook-capture",
     "--provider",
     "claude_code",
@@ -146,8 +179,4 @@ function assertInsideWorkspace(workspace: string, candidatePath: string, label: 
 
 function isNotFoundError(error: unknown): boolean {
   return typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT";
-}
-
-function shellQuote(value: string): string {
-  return `'${value.replaceAll("'", "'\\''")}'`;
 }

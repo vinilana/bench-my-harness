@@ -14,7 +14,33 @@ export interface SuiteTrialReport {
   readonly duration_ms?: number;
   readonly tags: readonly string[];
   readonly workspace?: string;
+  readonly hook_event_count?: number;
+  readonly hook_command?: {
+    readonly strategy: "workspace_shim";
+    readonly command: string;
+    readonly shimPath?: string;
+  };
+  readonly workspace_source?: {
+    readonly type: "git";
+    readonly repo_url: string;
+    readonly base_ref: string;
+    readonly resolved_base_sha?: string;
+    readonly golden_ref?: string;
+    readonly resolved_golden_sha?: string;
+  };
   readonly artifact_refs: readonly string[];
+  readonly diagnostics?: {
+    readonly process: {
+      readonly stdout_ref: string;
+      readonly stderr_ref: string;
+      readonly exit_ref: string;
+      readonly exit_code: number;
+      readonly timed_out: boolean;
+      readonly started_at: string;
+      readonly ended_at: string;
+      readonly duration_ms: number;
+    };
+  };
   readonly comparability: {
     readonly status: SuiteComparabilityStatus;
     readonly reasons: readonly string[];
@@ -164,7 +190,7 @@ export function renderSuiteReportHtml(report: SuiteReport): string {
 <td>${escapeHtml(String(trial.score))}</td>
 <td>${escapeHtml(trial.comparability.status)}</td>
 <td>${escapeHtml(metricSource)}</td>
-<td>${escapeHtml(trial.artifact_refs.join(", "))}</td>
+<td>${trial.artifact_refs.map(renderArtifactLink).join(", ")}</td>
 </tr>`;
   }).join("\n");
   const harnessRows = sanitized.harness_summaries.map((summary) => `<tr>
@@ -346,6 +372,10 @@ function observabilitySummary(trials: readonly SuiteTrialReport[]): Record<strin
   }
 
   return Object.fromEntries(metrics.map((metric) => [metric.metric, metric.measurement_source]));
+}
+
+function renderArtifactLink(ref: string): string {
+  return `<a href="${escapeHtml(ref)}">${escapeHtml(ref)}</a>`;
 }
 
 function mean(values: readonly number[]): number {

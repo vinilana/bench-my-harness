@@ -152,7 +152,22 @@ The v1 test suite must not call real Codex or Claude Code. Real harness executio
 
 ## Real Harness Smoke Tests
 
-Real Codex and Claude Code smoke tests are future, local-only checks for maintainers with the required binaries, credentials, and disposable repositories. They are not acceptance tests, are not required for CI, and must not run as part of `npm test`.
+Real Codex and Claude Code smoke tests are local-only checks for maintainers with the required binaries, credentials, and disposable repositories. They are not acceptance tests, are not required for CI, and must not run as part of `npm test`.
+
+For spec catalogs, real execution is explicit:
+
+```bash
+node ./dist/adapters/inbound/cli/main.js specs run \
+  --real \
+  --catalog-root .bmh/specs \
+  --store-root .bmh/runs \
+  --workspace-root .bmh/workspaces \
+  --harness codex \
+  --trials 1 \
+  --run-id local_codex_real_001
+```
+
+Real suite runs create one git checkout per trial at the benchmark `repo.base_ref`, install project-local hooks inside that checkout, run the harness, execute validation commands, and write `results.json`, `report.html`, per-trial `result.json`, `process-stdout.txt`, `process-stderr.txt`, and `process-exit.json` under `.bmh/runs/<run-id>`.
 
 ## Project Layout
 
@@ -284,7 +299,13 @@ node ./dist/adapters/inbound/cli/main.js run \
 
 ### 4. Run Codex
 
-Codex is supported through the `codex` harness id. The current process runner sends the benchmark prompt to the configured process over stdin and injects `BMH_*` environment variables. Replace `args` with the non-interactive arguments required by your local Codex CLI.
+Codex is supported through the `codex` harness id. For suite execution, `specs run --real --harness codex` uses the built-in Codex process profile:
+
+```text
+codex exec --skip-git-repo-check --sandbox workspace-write --dangerously-bypass-hook-trust -
+```
+
+The prompt is sent over stdin and `BMH_*` environment variables are injected. For one-off benchmark execution, you may still pass an explicit command:
 
 ```bash
 node ./dist/adapters/inbound/cli/main.js run \
@@ -301,7 +322,7 @@ During the run, BMH writes project-local Codex hook configuration inside the iso
 
 ### 5. Run Claude Code
 
-Claude Code is supported through the `claude_code` harness id. The current process runner also sends the benchmark prompt to stdin and injects `BMH_*` environment variables. Replace `args` with the non-interactive arguments required by your local Claude Code CLI.
+Claude Code is supported through the `claude_code` harness id. The process runner sends the benchmark prompt to stdin and injects `BMH_*` environment variables. The v1 built-in Claude Code real process profile is documented as an adapter contract; use `--harness-command-json` when your local Claude command needs explicit arguments.
 
 ```bash
 node ./dist/adapters/inbound/cli/main.js run \
@@ -495,6 +516,7 @@ bench-my-harness specs create --from-git --base-ref <base> --golden-ref <golden>
 bench-my-harness specs backfill --repo-path . --range main~25..main
 bench-my-harness specs validate
 bench-my-harness specs run --dry-run --run-id local_suite_001 --harness codex --harness claude_code
+bench-my-harness specs run --real --run-id local_codex_real_001 --harness codex --trials 1
 bench-my-harness specs smoke --run-id local_suite_001
 bench-my-harness validate benchmark benchmark.json
 bench-my-harness run --benchmark benchmark.json --harness codex --dry-run

@@ -76,10 +76,10 @@ describe("spec suite application layer", () => {
       harness: "codex",
       status: "failed",
       artifact_refs: [
-        "specs/pricing-rounding/codex/trial_2/result.json",
-        "specs/pricing-rounding/codex/trial_2/diff.patch",
-        "specs/pricing-rounding/codex/trial_2/test-output.txt",
-        "specs/pricing-rounding/codex/trial_2/transcript.jsonl"
+        "specs/pricing-rounding/codex/pricing-rounding_codex_trial_2/result.json",
+        "specs/pricing-rounding/codex/pricing-rounding_codex_trial_2/diff.patch",
+        "specs/pricing-rounding/codex/pricing-rounding_codex_trial_2/test-output.txt",
+        "specs/pricing-rounding/codex/pricing-rounding_codex_trial_2/transcript.jsonl"
       ]
     });
   });
@@ -212,10 +212,31 @@ class RecordingArtifactCollector implements ArtifactCollectorPort {
 }
 
 class RecordingWorkspaceProvisioner implements WorkspaceProvisionerPort {
-  public async provision(input: ProvisionWorkspaceInput): Promise<{ workspace: string; spoolPath: string }> {
+  public async provision(input: ProvisionWorkspaceInput): Promise<{
+    workspace: string;
+    spoolPath: string;
+    workspaceSource?: {
+      type: "git";
+      repo_url: string;
+      base_ref: string;
+      resolved_base_sha?: string;
+      golden_ref?: string;
+      resolved_golden_sha?: string;
+    };
+  }> {
     return {
       workspace: `${input.workspaceRoot}/${input.trialId}`,
-      spoolPath: `${input.workspaceRoot}/${input.trialId}/events.jsonl`
+      spoolPath: `${input.workspaceRoot}/${input.trialId}/events.jsonl`,
+      workspaceSource: input.source?.type === "git"
+        ? {
+            type: "git",
+            repo_url: input.source.repoUrl,
+            base_ref: input.source.baseRef,
+            resolved_base_sha: input.source.baseRef,
+            golden_ref: input.source.goldenRef,
+            resolved_golden_sha: input.source.goldenRef
+          }
+        : undefined
     };
   }
 }
