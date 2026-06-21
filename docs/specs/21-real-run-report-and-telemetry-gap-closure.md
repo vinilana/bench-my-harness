@@ -103,7 +103,7 @@ The system must:
 1. aggregate duration from `diagnostics.process.duration_ms` when `trial.duration_ms` is absent;
 2. safely collect provider transcript files referenced by hook payloads when they are outside the workspace;
 3. parse Claude Code `TaskCreate`/`TaskUpdate` as subagent evidence;
-4. parse Claude Code transcript/status evidence for model, tokens, and cost when present;
+4. parse Claude Code transcript/status evidence for model, tokens, native cost, and pricing-estimated cost when present;
 5. ensure ranking metadata and UI never rank unavailable cost/token values as better than known values;
 6. render artifact integrity links with run-relative hrefs;
 7. add report notes for harness-internal verification failures that differ from final BMH validation status.
@@ -117,13 +117,15 @@ In scope:
 - Redacted transcript copying to run artifacts.
 - Summary duration aggregation.
 - HTML report ranking, charts, and links.
+- Codex session transcript token extraction and pricing fallback for known OpenAI models.
 - Claude Code subagent evidence from `TaskCreate` and `TaskUpdate`.
 - Source/confidence-aware unavailable reasons for all still-missing model/token/cost fields.
+- Claude Code transcript usage extraction compatible with Claude Code local session JSONL.
+- Embedded Claude Code pricing fallback for known Claude models when transcript usage is available but native `costUSD` is missing.
 
 Out of scope:
 
 - Provider billing API integration.
-- Estimating cost from public pricing tables.
 - Distributing aggregate tokens/cost across subagents.
 - Cursor, OpenCode, and Pi adapters.
 - Changing harness sandbox policy automatically.
@@ -166,9 +168,29 @@ Claude Code usage capture must support:
 - `TaskUpdate` as subagent progress/status evidence;
 - `Stop`/`SessionEnd` as session completion evidence;
 - transcript records for assistant model metadata when available;
-- status-line or telemetry records for total tokens/cost when available.
+- status-line or telemetry records for total tokens/cost when available;
+- transcript records shaped like Claude Code local session JSONL, including `message.model`, `message.usage`, `requestId`, `isSidechain`, and optional `costUSD`;
+- cache token accounting for `cache_creation_input_tokens`, `cache_read_input_tokens`, and `usage.cache_creation.ephemeral_*_input_tokens`;
+- transcript deduplication by message id and request id, preferring non-sidechain records, then records with larger token totals, then records with speed metadata;
+- native transcript cost when `costUSD` is present;
+- estimated transcript cost when `costUSD` is missing and an embedded Claude pricing entry exists.
 
 If subagents are detected but per-subagent tokens/cost are not available, the usage report must include subagents with unavailable token/cost observations and explicit reasons.
+
+Pricing-estimated cost must use `measurement_source: estimated`, `capture_source: claude_transcript_pricing`, `confidence: medium`, and evidence refs pointing to the transcript artifact. Native transcript cost must use `measurement_source: native`, `capture_source: claude_transcript`, `confidence: medium`. If neither native cost nor pricing is available, cost must remain unavailable with an explicit reason.
+
+### Codex Usage
+
+Codex usage capture must support:
+
+- local session transcript `turn_context` records for model metadata;
+- local session transcript `event_msg` records with `payload.type = token_count`;
+- cumulative `total_token_usage` selection without double-counting repeated `token_count` records;
+- input, output, cached input, and total token observations from transcript counters;
+- cache write marked unavailable unless Codex exposes explicit cache write usage;
+- estimated transcript cost when a known OpenAI pricing entry exists.
+
+Pricing-estimated cost must use `measurement_source: estimated`, `capture_source: codex_session_transcript_pricing`, `confidence: medium`, and evidence refs pointing to the transcript artifact. If neither native cost nor pricing is available, cost must remain unavailable with an explicit reason.
 
 ### Ranking
 
@@ -216,6 +238,8 @@ Add tests before implementation.
 - records per-subagent token/cost as unavailable when no native evidence exists;
 - extracts tool usage counts from `PostToolBatch`;
 - extracts model/tokens/cost from transcript/status fixtures when present;
+- extracts input, output, cache read, cache write, total tokens, and mixed native/estimated cost from Claude transcript JSONL fixtures;
+- deduplicates transcript entries by message id and request id without double-counting sidechain duplicates;
 - records unavailable reasons when model/tokens/cost are absent.
 
 ### Ranking Semantics
@@ -283,3 +307,4 @@ node ./dist/adapters/inbound/cli/main.js specs run \
 - Transcript artifacts may contain secrets; redaction must happen before copying to report artifacts.
 - Claude Code subagent hooks expose lifecycle intent but not necessarily token/cost attribution.
 - Harness-internal verification failure parsing is heuristic and must not override final BMH validation status.
+- The Claude Code transcript token and pricing approach depends on local Claude Code data formats and is implemented behind BMH's usage port with BMH evidence and confidence labels.

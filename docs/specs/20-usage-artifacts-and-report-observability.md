@@ -80,6 +80,9 @@ Collection rules:
 
 - `llm.model` may come from Codex hook payload `model`.
 - `total_tokens` may be parsed from process output when Codex emits a final token summary.
+- `total_tokens`, `input_tokens`, `output_tokens`, and `cache_read` may be parsed from Codex local session transcript `token_count` records when present.
+- `cache_write` remains unavailable unless Codex exposes explicit cache write usage.
+- `total_cost_usd` may be estimated from Codex session transcript token counts when a known OpenAI pricing entry exists.
 - `total_cost_usd` remains unavailable unless Codex process output, transcript, app-server evidence, provider API, or a configured pricing source provides enough data.
 - `subagents_used` may be derived from `SubagentStart` and `SubagentStop` events.
 - `tokens_by_subagent` is unavailable unless a subagent event or transcript contains usage details for that subagent.
@@ -90,6 +93,8 @@ Confidence:
 
 - hook model fields: `measurement_source: native`, `confidence: high`;
 - final token summary from Codex process output: `measurement_source: native`, `capture_source: codex_cli_process_output`, `confidence: medium`;
+- Codex session transcript token counters: `measurement_source: native`, `capture_source: codex_session_transcript`, `confidence: medium`;
+- Codex transcript pricing fallback for known OpenAI models: `measurement_source: estimated`, `capture_source: codex_session_transcript_pricing`, `confidence: medium`;
 - transcript-derived subagent/tool/skill/MCP facts: `measurement_source: derived`, `confidence: medium`;
 - cost without native billing data: `measurement_source: unavailable`, `confidence: none`.
 
@@ -118,7 +123,8 @@ Confidence:
 
 - OTel usage metrics emitted by Claude Code: `measurement_source: native`, `confidence: high`;
 - status line JSON: `measurement_source: native`, `confidence: medium`;
-- transcript-derived usage: `measurement_source: derived`, `confidence: medium`;
+- transcript usage counters emitted by Claude Code: `measurement_source: native`, `confidence: medium`;
+- transcript pricing fallback for known Claude models: `measurement_source: estimated`, `confidence: medium`;
 - aggregate-only usage distributed across subagents by heuristic is not allowed in v1.
 
 ## Data Model
@@ -466,6 +472,8 @@ Add tests before implementation.
 
 - extracts model from Codex hook payloads;
 - extracts total tokens from a Codex process output fixture containing a final token summary;
+- extracts model, input tokens, output tokens, cached input tokens, total tokens, and estimated pricing fallback from Codex session transcript fixtures when present;
+- records cache write tokens as unavailable when Codex session transcript does not expose them;
 - extracts subagent start/stop from Codex hook fixture events;
 - extracts MCP usage from Codex hook or transcript fixture events;
 - reports cost unavailable when no billing/pricing source exists;
@@ -477,11 +485,12 @@ Add tests before implementation.
 
 - extracts model from Claude hook, transcript, OTel, or status-line fixtures;
 - extracts total tokens and cost from a Claude OTel fixture when present;
+- extracts input, output, cache read, cache write, total tokens, native cost, and estimated pricing fallback from Claude transcript fixtures when present;
 - extracts subagents from Claude transcript or hook fixtures;
 - records per-subagent tokens/cost only when fixture evidence contains native per-subagent usage;
 - extracts skills from Claude skill invocation transcript fixtures;
 - extracts MCP usage from Claude MCP hook fixtures;
-- reports unavailable fields with reasons instead of inventing estimates.
+- reports unavailable fields with reasons when neither native usage nor supported pricing evidence exists.
 
 ### Suite Aggregation
 
