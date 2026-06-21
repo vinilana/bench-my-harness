@@ -20,6 +20,8 @@ export interface LoadedSpecCatalog {
   readonly specs: readonly LoadedFeatureSpec[];
 }
 
+export type SpecCatalogDefaults = NonNullable<SpecCatalog["defaults"]>;
+
 export interface CreateSpecCatalogInput {
   readonly id?: string;
   readonly name?: string;
@@ -29,6 +31,11 @@ export interface CreateSpecCatalogInput {
   readonly harnesses?: readonly ("codex" | "claude_code")[];
   readonly workspaceRoot?: string;
   readonly strictTelemetry?: boolean;
+  readonly repoPath?: string;
+  readonly category?: string;
+  readonly setupCommands?: readonly string[];
+  readonly testCommands?: readonly string[];
+  readonly includeInSuite?: boolean;
 }
 
 export interface FeatureSpecAuthoringInput {
@@ -94,10 +101,15 @@ export function createSpecCatalog(input: CreateSpecCatalogInput = {}): SpecCatal
     description: input.description,
     specs: [],
     defaults: {
+      repo_path: input.repoPath ?? ".",
+      category: input.category ?? "feature",
       trials: input.trials ?? 3,
       harnesses: input.harnesses ?? ["codex", "claude_code"],
       workspace_root: input.workspaceRoot ?? ".bmh/workspaces",
-      strict_telemetry: input.strictTelemetry ?? false
+      strict_telemetry: input.strictTelemetry ?? false,
+      setup_commands: [...(input.setupCommands ?? [])],
+      test_commands: [...(input.testCommands ?? [])],
+      include_in_suite: input.includeInSuite ?? true
     }
   });
 }
@@ -251,9 +263,87 @@ export function validateBackfillLimit(limit: number | undefined): number {
   return limit;
 }
 
+export interface SpecAuthoringDefaultsInput {
+  readonly id?: string;
+  readonly name?: string;
+  readonly category?: string;
+  readonly repoPath?: string;
+  readonly setupCommands?: readonly string[];
+  readonly testCommands?: readonly string[];
+  readonly includeInSuite?: boolean;
+}
+
+export interface ResolvedSpecAuthoringDefaults {
+  readonly id: string;
+  readonly name: string;
+  readonly category: string;
+  readonly repoPath: string;
+  readonly setupCommands: readonly string[];
+  readonly testCommands: readonly string[];
+  readonly includeInSuite: boolean;
+}
+
+export function inferSpecIdFromPromptPath(path: string): string {
+  const fileName = path.split(/[\\/]/).filter((segment) => segment.length > 0).at(-1) ?? path;
+  const withoutExtension = fileName.replace(/\.md$/i, "");
+  const withoutNumericPrefix = withoutExtension.replace(/^\d+[-_.\s]+/, "");
+  const normalized = withoutNumericPrefix
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+
+  if (normalized.length === 0) {
+    throw new Error(`could not infer spec id from prompt path: ${path}`);
+  }
+
+  validateSpecCatalogPath(normalized, "inferred spec id");
+  return normalized;
+}
+
+export function inferSpecNameFromMarkdown(markdown: string, fallbackPath: string): string {
+  for (const line of markdown.split(/\r?\n/)) {
+    const match = /^\s{0,3}#\s+(.+?)\s*#*\s*$/.exec(line);
+    const heading = match?.[1]?.trim();
+    if (heading !== undefined && heading.length > 0) {
+      return heading;
+    }
+  }
+
+  return titleCase(inferSpecIdFromPromptPath(fallbackPath));
+}
+
+export function mergeSpecAuthoringDefaults(input: {
+  readonly promptPath: string;
+  readonly promptMarkdown: string;
+  readonly catalogDefaults?: SpecCatalogDefaults;
+  readonly overrides?: SpecAuthoringDefaultsInput;
+}): ResolvedSpecAuthoringDefaults {
+  const defaults = input.catalogDefaults;
+  const overrides = input.overrides ?? {};
+
+  return {
+    id: overrides.id ?? inferSpecIdFromPromptPath(input.promptPath),
+    name: overrides.name ?? inferSpecNameFromMarkdown(input.promptMarkdown, input.promptPath),
+    category: overrides.category ?? defaults?.category ?? "feature",
+    repoPath: overrides.repoPath ?? defaults?.repo_path ?? ".",
+    setupCommands: [...(overrides.setupCommands ?? defaults?.setup_commands ?? [])],
+    testCommands: [...(overrides.testCommands ?? defaults?.test_commands ?? [])],
+    includeInSuite: overrides.includeInSuite ?? defaults?.include_in_suite ?? true
+  };
+}
+
 function featureDirectoryFor(id: string): string {
   validateSpecCatalogPath(id, "spec id");
   return `features/${id}`;
+}
+
+function titleCase(id: string): string {
+  return id
+    .split("-")
+    .filter((part) => part.length > 0)
+    .map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`)
+    .join(" ");
 }
 
 function inferTagsFromFiles(files: readonly string[]): readonly string[] {

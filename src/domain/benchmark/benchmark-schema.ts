@@ -96,10 +96,15 @@ export const SpecCatalogSchema = z.object({
   description: NonEmptyStringSchema.optional(),
   specs: z.array(SpecCatalogReferenceSchema),
   defaults: z.object({
+    repo_path: NonEmptyStringSchema.optional(),
+    category: NonEmptyStringSchema.optional(),
     trials: z.number().int().positive().optional(),
     harnesses: z.array(HarnessProviderSchema).optional(),
     workspace_root: NonEmptyStringSchema.optional(),
-    strict_telemetry: z.boolean().optional()
+    strict_telemetry: z.boolean().optional(),
+    setup_commands: CommandListSchema.optional(),
+    test_commands: CommandListSchema.optional(),
+    include_in_suite: z.boolean().optional()
   }).optional()
 });
 

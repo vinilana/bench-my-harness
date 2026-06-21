@@ -356,16 +356,31 @@ This writes:
 Create a feature spec from an explicit Markdown prompt:
 
 ```bash
-node ./dist/adapters/inbound/cli/main.js specs create \
-  --id login-validation \
-  --name "Login validation" \
-  --category bugfix \
+node ./dist/adapters/inbound/cli/main.js specs configure \
   --repo-path . \
-  --base-ref <commit-before-feature> \
-  --golden-ref <commit-after-feature> \
-  --prompt-file ./docs/login-validation.md \
+  --category feature \
+  --setup-command "npm install" \
   --test-command "npm test" \
+  --harness codex \
+  --harness claude_code \
+  --trials 3 \
   --include-in-suite
+```
+
+Then create feature specs from Markdown prompts. BMH infers the spec id from the file name and the display name from the first Markdown H1:
+
+```bash
+node ./dist/adapters/inbound/cli/main.js specs create ./docs/login-validation.md \
+  --base-ref <commit-before-feature> \
+  --golden-ref <commit-after-feature>
+```
+
+Import multiple prompt files with the same refs:
+
+```bash
+node ./dist/adapters/inbound/cli/main.js specs import "docs/specs/*.md" \
+  --base-ref <commit-before-feature> \
+  --golden-ref <commit-after-feature>
 ```
 
 This writes:
@@ -414,12 +429,7 @@ node ./dist/adapters/inbound/cli/main.js specs validate
 Run the suite with fake harness execution:
 
 ```bash
-node ./dist/adapters/inbound/cli/main.js specs run \
-  --dry-run \
-  --run-id local_suite_001 \
-  --harness codex \
-  --harness claude_code \
-  --trials 2
+node ./dist/adapters/inbound/cli/main.js specs smoke --run-id local_suite_001
 ```
 
 Dry-run suite execution writes:
@@ -478,11 +488,14 @@ Current CLI surface:
 ```bash
 bench-my-harness hook-capture --provider codex --event PreToolUse
 bench-my-harness specs init
-bench-my-harness specs create --id login-validation --name "Login validation" --category bugfix --repo-path . --base-ref <base> --golden-ref <golden> --prompt-file spec.md --include-in-suite
-bench-my-harness specs create --from-git --id login-validation --name "Login validation" --category bugfix --repo-path . --base-ref <base> --golden-ref <golden>
+bench-my-harness specs configure --repo-path . --setup-command "npm install" --test-command "npm test" --harness codex --harness claude_code --include-in-suite
+bench-my-harness specs create docs/specs/example.md --base-ref <base> --golden-ref <golden>
+bench-my-harness specs import "docs/specs/*.md" --base-ref <base> --golden-ref <golden>
+bench-my-harness specs create --from-git --base-ref <base> --golden-ref <golden>
 bench-my-harness specs backfill --repo-path . --range main~25..main
 bench-my-harness specs validate
 bench-my-harness specs run --dry-run --run-id local_suite_001 --harness codex --harness claude_code
+bench-my-harness specs smoke --run-id local_suite_001
 bench-my-harness validate benchmark benchmark.json
 bench-my-harness run --benchmark benchmark.json --harness codex --dry-run
 bench-my-harness run --benchmark benchmark.json --harness codex --harness-command-json '{"executable":"codex","args":[]}' --run-validation

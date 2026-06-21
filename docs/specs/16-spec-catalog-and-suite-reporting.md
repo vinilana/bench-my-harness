@@ -227,6 +227,9 @@ The runner must continue the suite after an individual trial failure unless the 
 
 ## CLI Surface
 
+For convention-based defaults, prompt-file inference, bulk prompt import, and `specs smoke`, see
+[`17-cli-defaults-and-convention-authoring.md`](./17-cli-defaults-and-convention-authoring.md).
+
 Create or update the local spec catalog:
 
 ```bash
@@ -322,6 +325,7 @@ Rules:
 
 - The default catalog root is `.bmh/specs`.
 - `--catalog-root <path>` may override the catalog root.
+- CLI defaults and convention-based shortcuts are specified separately in `docs/specs/17-cli-defaults-and-convention-authoring.md`.
 - `specs create` defaults to interactive mode when required authoring fields are missing and stdin/stdout are TTYs.
 - `specs create --from-git` creates a draft spec from Git evidence and marks semantic requirements as requiring review.
 - `specs backfill` creates draft specs only; drafts are not included in `suite.json` unless `--include-in-suite` is passed.

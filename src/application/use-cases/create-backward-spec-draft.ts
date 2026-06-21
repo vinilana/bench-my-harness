@@ -3,6 +3,7 @@ import type { SpecCatalogStore } from "../ports/spec-catalog-store.js";
 import {
   createBackwardSpecDraft,
   createSpecCatalog,
+  inferSpecIdFromPromptPath,
   validateBackfillLimit,
   type FeatureSpecDraft
 } from "../../domain/benchmark/spec-catalog.js";
@@ -11,8 +12,8 @@ export interface CreateBackwardSpecDraftInput {
   readonly catalogRoot: string;
   readonly repoPath: string;
   readonly repoUrl: string;
-  readonly id: string;
-  readonly name: string;
+  readonly id?: string;
+  readonly name?: string;
   readonly category: string;
   readonly baseRef: string;
   readonly goldenRef: string;
@@ -48,9 +49,10 @@ export class CreateBackwardSpecDraftUseCase {
       baseRef: input.baseRef,
       goldenRef: input.goldenRef
     });
+    const subject = evidence.commitMessages[0] ?? evidence.goldenRef;
     const draft = createBackwardSpecDraft({
-      id: input.id,
-      name: input.name,
+      id: input.id ?? inferSpecIdFromPromptPath(`${subject}.md`),
+      name: input.name ?? subject,
       category: input.category,
       repoUrl: input.repoUrl,
       evidence,

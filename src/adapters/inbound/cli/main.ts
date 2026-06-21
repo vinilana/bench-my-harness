@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-import { readFile } from "node:fs/promises";
-import { dirname, isAbsolute, resolve } from "node:path";
+import { readFile, readdir, stat } from "node:fs/promises";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { pathToFileURL } from "node:url";
 import { Command, CommanderError } from "commander";
@@ -29,9 +29,14 @@ import { ResolveBenchmarkPromptUseCase } from "../../../application/use-cases/re
 import { GenerateProjectCommandsUseCase } from "../../../application/use-cases/generate-project-commands.js";
 import { CreateSpecCatalogUseCase } from "../../../application/use-cases/create-spec-catalog.js";
 import { CreateFeatureSpecUseCase } from "../../../application/use-cases/create-feature-spec.js";
+import { CreateFeatureSpecFromPromptFileUseCase } from "../../../application/use-cases/create-feature-spec-from-prompt-file.js";
 import { CreateBackwardSpecDraftUseCase } from "../../../application/use-cases/create-backward-spec-draft.js";
+import { ConfigureSpecCatalogUseCase } from "../../../application/use-cases/configure-spec-catalog.js";
+import { ImportFeatureSpecsUseCase } from "../../../application/use-cases/import-feature-specs.js";
 import { LoadSpecCatalogUseCase } from "../../../application/use-cases/load-spec-catalog.js";
 import { RunSpecSuiteUseCase } from "../../../application/use-cases/run-spec-suite.js";
+import { RunSpecSuiteSmokeUseCase } from "../../../application/use-cases/run-spec-suite-smoke.js";
+import type { SpecCatalogDefaults } from "../../../domain/benchmark/spec-catalog.js";
 import { renderSuiteReportHtml } from "../../../domain/reports/suite-report.js";
 import { runHookCapture, type HookCaptureProvider } from "./hook-capture.js";
 import {
@@ -317,14 +322,52 @@ export function buildProgram(context: CliContext): Command {
     });
 
   specs
+    .command("configure")
+    .description("Configure spec catalog authoring defaults.")
+    .option("--catalog-root <path>", "spec catalog root", ".bmh/specs")
+    .option("--repo-path <path>", "default local repository path")
+    .option("--category <category>", "default spec category")
+    .option("--setup-command <command>", "default setup command", collectOptionValue)
+    .option("--test-command <command>", "default validation command", collectOptionValue)
+    .option("--harness <harness>", "default harness", collectOptionValue)
+    .option("--trials <count>", "default trial count", parsePositiveInt)
+    .option("--workspace-root <path>", "default workspace root")
+    .option("--strict-telemetry", "default strict telemetry")
+    .option("--no-strict-telemetry", "disable strict telemetry by default")
+    .option("--include-in-suite", "add generated specs to suite by default")
+    .option("--no-include-in-suite", "do not add generated specs to suite by default")
+    .action(async (options: SpecsConfigureOptions) => {
+      const catalogRoot = resolvePath(context.cwd, options.catalogRoot ?? ".bmh/specs");
+      const configureHarnessOptions = options.harness ?? [];
+      const harnesses = hasEntries(configureHarnessOptions) ? configureHarnessOptions.map(parseProvider) : undefined;
+      const catalog = await new ConfigureSpecCatalogUseCase(new FilesystemSpecCatalogStore()).execute({
+        catalogRoot,
+        defaults: {
+          repo_path: options.repoPath,
+          category: options.category,
+          setup_commands: hasEntries(options.setupCommand) ? [...(options.setupCommand ?? [])] : undefined,
+          test_commands: hasEntries(options.testCommand) ? [...(options.testCommand ?? [])] : undefined,
+          harnesses,
+          trials: options.trials,
+          workspace_root: options.workspaceRoot,
+          strict_telemetry: options.strictTelemetry,
+          include_in_suite: options.includeInSuite
+        }
+      });
+
+      context.stdout(`spec catalog defaults configured: ${catalog.id}@${catalog.version}\n`);
+    });
+
+  specs
     .command("create")
     .description("Create a feature spec in .bmh/specs.")
+    .argument("[promptFile]", "Markdown prompt/spec file to copy into the catalog")
     .option("--catalog-root <path>", "spec catalog root", ".bmh/specs")
     .option("--id <id>", "spec id")
     .option("--name <name>", "spec name")
     .option("--category <category>", "spec category")
     .option("--difficulty <difficulty>", "spec difficulty")
-    .option("--repo-path <path>", "local repository path", ".")
+    .option("--repo-path <path>", "local repository path")
     .option("--base-ref <ref>", "base git ref")
     .option("--golden-ref <ref>", "golden git ref")
     .option("--prompt-file <path>", "Markdown prompt/spec file to copy into the catalog")
@@ -332,12 +375,23 @@ export function buildProgram(context: CliContext): Command {
     .option("--setup-command <command>", "setup command", collectOptionValue, [])
     .option("--test-command <command>", "validation command", collectOptionValue, [])
     .option("--tag <tag>", "spec tag", collectOptionValue, [])
-    .option("--include-in-suite", "add the spec to suite.json", false)
+    .option("--include-in-suite", "add the spec to suite.json")
     .option("--force", "overwrite generated spec files", false)
-    .action(async (options: SpecsCreateOptions) => {
+    .action(async (promptFileArg: string | undefined, options: SpecsCreateOptions) => {
       const catalogRoot = resolvePath(context.cwd, options.catalogRoot ?? ".bmh/specs");
-      const repoPath = resolvePath(context.cwd, options.repoPath ?? ".");
-      const repoUrl = repoPathToFileUrl(context.cwd, options.repoPath ?? ".");
+      if (promptFileArg !== undefined && options.promptFile !== undefined) {
+        throw new Error("specs create accepts either <promptFile> or --prompt-file, not both");
+      }
+
+      const promptFile = promptFileArg ?? options.promptFile;
+      const defaults = await loadSpecDefaults(catalogRoot);
+      const repoPathOption = options.repoPath ?? defaults?.repo_path ?? ".";
+      const repoPath = resolvePath(context.cwd, repoPathOption);
+      const repoUrl = repoPathToFileUrl(context.cwd, repoPathOption);
+      const setupCommands = hasEntries(options.setupCommand) ? options.setupCommand : defaults?.setup_commands ?? [];
+      const testCommands = hasEntries(options.testCommand) ? options.testCommand : defaults?.test_commands ?? [];
+      const includeInSuite = options.includeInSuite ?? defaults?.include_in_suite ?? false;
+      const category = options.category ?? defaults?.category;
 
       if (options.fromGit === true) {
         const draft = await new CreateBackwardSpecDraftUseCase({
@@ -347,14 +401,14 @@ export function buildProgram(context: CliContext): Command {
           catalogRoot,
           repoPath,
           repoUrl,
-          id: requiredOption(options.id, "--id"),
-          name: requiredOption(options.name, "--name"),
-          category: requiredOption(options.category, "--category"),
+          id: options.id,
+          name: options.name,
+          category: requiredOption(category, "--category"),
           baseRef: requiredOption(options.baseRef, "--base-ref"),
           goldenRef: requiredOption(options.goldenRef, "--golden-ref"),
-          setupCommands: options.setupCommand ?? [],
-          testCommands: options.testCommand ?? [],
-          includeInSuite: options.includeInSuite ?? false,
+          setupCommands,
+          testCommands,
+          includeInSuite,
           force: options.force ?? false
         });
 
@@ -362,27 +416,56 @@ export function buildProgram(context: CliContext): Command {
         return;
       }
 
-      const promptMarkdown = options.promptFile
-        ? await readFile(resolvePath(context.cwd, options.promptFile), "utf8")
+      if (promptFile !== undefined && (options.id === undefined || options.name === undefined || options.category === undefined)) {
+        const draft = await new CreateFeatureSpecFromPromptFileUseCase({
+          store: new FilesystemSpecCatalogStore(),
+          promptReader: new FilesystemPromptFileReader(),
+          resolveRepoUrl: (repoPath) => repoPathToFileUrl(context.cwd, repoPath)
+        }).execute({
+          catalogRoot,
+          promptRoot: context.cwd,
+          promptPath: promptFile,
+          baseRef: options.baseRef,
+          goldenRef: options.goldenRef,
+          tags: options.tag ?? [],
+          difficulty: options.difficulty,
+          overrides: {
+            id: options.id,
+            name: options.name,
+            category: options.category,
+            repoPath: repoPathOption,
+            setupCommands: hasEntries(options.setupCommand) ? options.setupCommand : undefined,
+            testCommands: hasEntries(options.testCommand) ? options.testCommand : undefined,
+            includeInSuite: options.includeInSuite
+          },
+          force: options.force ?? false
+        });
+
+        context.stdout(`spec created: ${resolvePath(catalogRoot, draft.benchmarkPath)}\n`);
+        return;
+      }
+
+      const promptMarkdown = promptFile
+        ? await readFile(resolvePath(context.cwd, promptFile), "utf8")
         : "# Task\n\nTODO: Describe the feature behavior to implement.\n";
       const draft = await new CreateFeatureSpecUseCase(new FilesystemSpecCatalogStore()).execute({
         catalogRoot,
         repoUrl,
         id: requiredOption(options.id, "--id"),
         name: requiredOption(options.name, "--name"),
-        category: requiredOption(options.category, "--category"),
+        category: requiredOption(category, "--category"),
         difficulty: options.difficulty,
         baseRef: options.baseRef,
         goldenRef: options.goldenRef,
-        setupCommands: options.setupCommand ?? [],
-        testCommands: options.testCommand ?? [],
+        setupCommands,
+        testCommands,
         promptMarkdown,
         tags: options.tag ?? [],
         metadata: {
           source: "manual_cli",
-          source_prompt_file: options.promptFile
+          source_prompt_file: promptFile
         },
-        includeInSuite: options.includeInSuite ?? false,
+        includeInSuite,
         force: options.force ?? false
       });
 
@@ -419,6 +502,38 @@ export function buildProgram(context: CliContext): Command {
     });
 
   specs
+    .command("import")
+    .description("Create feature specs from Markdown prompt files.")
+    .argument("<promptFiles...>", "Markdown prompt/spec files or simple glob patterns")
+    .option("--catalog-root <path>", "spec catalog root", ".bmh/specs")
+    .option("--repo-path <path>", "local repository path")
+    .option("--base-ref <ref>", "base git ref")
+    .option("--golden-ref <ref>", "golden git ref")
+    .option("--force", "overwrite generated spec files", false)
+    .action(async (promptFiles: readonly string[], options: SpecsImportOptions) => {
+      const catalogRoot = resolvePath(context.cwd, options.catalogRoot ?? ".bmh/specs");
+      const defaults = await loadSpecDefaults(catalogRoot);
+      const repoPathOption = options.repoPath ?? defaults?.repo_path ?? ".";
+      const expanded = await expandPromptFiles(context.cwd, promptFiles);
+      const prompts = expanded.map((promptPath) => ({ promptPath }));
+      const drafts = await new ImportFeatureSpecsUseCase({
+        store: new FilesystemSpecCatalogStore(),
+        promptReader: new FilesystemPromptFileReader(),
+        resolveRepoUrl: (repoPath) => repoPathToFileUrl(context.cwd, repoPath)
+      }).execute({
+        catalogRoot,
+        promptRoot: context.cwd,
+        repoUrl: repoPathToFileUrl(context.cwd, repoPathOption),
+        prompts,
+        baseRef: options.baseRef,
+        goldenRef: options.goldenRef,
+        force: options.force ?? false
+      });
+
+      context.stdout(`specs imported: ${drafts.length}\n`);
+    });
+
+  specs
     .command("validate")
     .description("Validate a spec catalog.")
     .option("--catalog-root <path>", "spec catalog root", ".bmh/specs")
@@ -439,12 +554,14 @@ export function buildProgram(context: CliContext): Command {
     .description("Run a spec catalog suite.")
     .option("--catalog-root <path>", "spec catalog root", ".bmh/specs")
     .option("--store-root <path>", "suite result store root", ".bmh/runs")
-    .option("--workspace-root <path>", "root directory for trial workspace", ".bmh/workspaces")
+    .option("--workspace-root <path>", "root directory for trial workspace")
     .option("--run-id <runId>", "run id", defaultRunId())
     .option("--harness <harness>", "harness: codex or claude_code", collectOptionValue, [])
     .option("--spec <spec>", "spec id", collectOptionValue, [])
     .option("--tag <tag>", "tag", collectOptionValue, [])
     .option("--trials <count>", "trial count", parsePositiveInt)
+    .option("--strict-telemetry", "fail trials on telemetry failures")
+    .option("--no-strict-telemetry", "do not fail trials on telemetry failures")
     .option("--dry-run", "use a fake harness runner", false)
     .action(async (options: SpecsRunOptions) => {
       const loaded = await new LoadSpecCatalogUseCase(new FilesystemSpecCatalogStore()).execute({
@@ -475,11 +592,43 @@ export function buildProgram(context: CliContext): Command {
         specIds: options.spec,
         tags: options.tag,
         trials: options.trials,
-        workspaceRoot: resolvePath(context.cwd, options.workspaceRoot ?? ".bmh/workspaces"),
-        catalogRoot: resolvePath(context.cwd, options.catalogRoot ?? ".bmh/specs")
+        workspaceRoot: resolvePath(context.cwd, options.workspaceRoot ?? loaded.catalog.defaults?.workspace_root ?? ".bmh/workspaces"),
+        catalogRoot: resolvePath(context.cwd, options.catalogRoot ?? ".bmh/specs"),
+        strictTelemetry: options.strictTelemetry
       });
 
       context.stdout(`spec suite run complete: ${report.run_id} (${report.trial_count} trials)\n`);
+    });
+
+  specs
+    .command("smoke")
+    .description("Run a dry one-trial spec suite smoke test.")
+    .option("--catalog-root <path>", "spec catalog root", ".bmh/specs")
+    .option("--store-root <path>", "suite result store root", ".bmh/runs")
+    .option("--workspace-root <path>", "root directory for trial workspace")
+    .option("--run-id <runId>", "run id", defaultRunId())
+    .action(async (options: SpecsSmokeOptions) => {
+      const loaded = await new LoadSpecCatalogUseCase(new FilesystemSpecCatalogStore()).execute({
+        catalogRoot: resolvePath(context.cwd, options.catalogRoot ?? ".bmh/specs")
+      });
+      const runner = new BenchmarkRunner({
+        hookInstaller: new DryRunHookInstaller(),
+        harnessRunner: new DryRunHarnessRunner(),
+        artifactCollector: new DryRunArtifactCollector(),
+        workspaceProvisioner: new FilesystemWorkspaceProvisioner(),
+        promptResolver: new ResolveBenchmarkPromptUseCase(new FilesystemPromptFileReader())
+      });
+      const report = await new RunSpecSuiteSmokeUseCase(new FilesystemSuiteResultStore({
+        root: resolvePath(context.cwd, options.storeRoot ?? ".bmh/runs")
+      })).execute({
+        loadedCatalog: loaded,
+        runner,
+        runId: options.runId,
+        workspaceRoot: resolvePath(context.cwd, options.workspaceRoot ?? loaded.catalog.defaults?.workspace_root ?? ".bmh/workspaces"),
+        catalogRoot: resolvePath(context.cwd, options.catalogRoot ?? ".bmh/specs")
+      });
+
+      context.stdout(`spec suite smoke complete: ${report.run_id} (${report.trial_count} trials)\n`);
     });
 
   program
@@ -574,6 +723,18 @@ interface SpecsInitOptions extends SpecsCatalogOptions {
   readonly force?: boolean;
 }
 
+interface SpecsConfigureOptions extends SpecsCatalogOptions {
+  readonly repoPath?: string;
+  readonly category?: string;
+  readonly setupCommand?: readonly string[];
+  readonly testCommand?: readonly string[];
+  readonly harness?: readonly string[];
+  readonly trials?: number;
+  readonly workspaceRoot?: string;
+  readonly strictTelemetry?: boolean;
+  readonly includeInSuite?: boolean;
+}
+
 interface SpecsCreateOptions extends SpecsCatalogOptions {
   readonly id?: string;
   readonly name?: string;
@@ -608,7 +769,21 @@ interface SpecsRunOptions extends SpecsCatalogOptions {
   readonly spec?: readonly string[];
   readonly tag?: readonly string[];
   readonly trials?: number;
+  readonly strictTelemetry?: boolean;
   readonly dryRun?: boolean;
+}
+
+interface SpecsImportOptions extends SpecsCatalogOptions {
+  readonly repoPath?: string;
+  readonly baseRef?: string;
+  readonly goldenRef?: string;
+  readonly force?: boolean;
+}
+
+interface SpecsSmokeOptions extends SpecsCatalogOptions {
+  readonly storeRoot?: string;
+  readonly workspaceRoot?: string;
+  readonly runId: string;
 }
 
 interface InitBenchmarkOptions {
@@ -726,8 +901,8 @@ function repoPathToFileUrl(cwd: string, path: string): string {
   return pathToFileURL(resolvePath(cwd, path)).href;
 }
 
-function collectOptionValue(value: string, previous: readonly string[]): readonly string[] {
-  return [...previous, value];
+function collectOptionValue(value: string, previous: readonly string[] | undefined): readonly string[] {
+  return [...(previous ?? []), value];
 }
 
 function requiredOption(value: string | undefined, option: string): string {
@@ -740,6 +915,107 @@ function requiredOption(value: string | undefined, option: string): string {
 
 function hasEntries(values: readonly unknown[] | undefined): boolean {
   return values !== undefined && values.length > 0;
+}
+
+async function loadSpecDefaults(catalogRoot: string): Promise<SpecCatalogDefaults | undefined> {
+  try {
+    const loaded = await new LoadSpecCatalogUseCase(new FilesystemSpecCatalogStore()).execute({
+      catalogRoot
+    });
+
+    return loaded.catalog.defaults;
+  } catch (error) {
+    if (isNotFoundError(error) || (error instanceof Error && /no such file|ENOENT/i.test(error.message))) {
+      return undefined;
+    }
+
+    throw error;
+  }
+}
+
+async function expandPromptFiles(cwd: string, promptFiles: readonly string[]): Promise<readonly string[]> {
+  const expanded: string[] = [];
+
+  for (const promptFile of promptFiles) {
+    if (!hasGlobPattern(promptFile)) {
+      expanded.push(promptFile);
+      continue;
+    }
+
+    const matches = await expandGlobPattern(cwd, promptFile);
+    if (matches.length === 0) {
+      throw new Error(`prompt file pattern matched no files: ${promptFile}`);
+    }
+
+    expanded.push(...matches);
+  }
+
+  return expanded;
+}
+
+function hasGlobPattern(path: string): boolean {
+  return /[*?]/.test(path);
+}
+
+async function expandGlobPattern(cwd: string, pattern: string): Promise<readonly string[]> {
+  const absolutePattern = resolvePath(cwd, pattern);
+  const segments = absolutePattern.split(/[\\/]/);
+  const startsAtRoot = segments[0] === "";
+  let candidates = [startsAtRoot ? "/" : segments[0] ?? ""];
+  const remainingSegments = startsAtRoot ? segments.slice(1) : segments.slice(1);
+
+  for (const segment of remainingSegments) {
+    if (!hasGlobPattern(segment)) {
+      candidates = candidates.map((candidate) => join(candidate, segment));
+      continue;
+    }
+
+    const matcher = globSegmentMatcher(segment);
+    const nextCandidates: string[] = [];
+
+    for (const candidate of candidates) {
+      let entries: string[];
+
+      try {
+        entries = await readdir(candidate);
+      } catch (error) {
+        if (isNotFoundError(error)) {
+          continue;
+        }
+
+        throw error;
+      }
+
+      nextCandidates.push(
+        ...entries
+          .filter((entry) => matcher.test(entry))
+          .map((entry) => join(candidate, entry))
+      );
+    }
+
+    candidates = nextCandidates;
+  }
+
+  const files: string[] = [];
+  for (const candidate of candidates) {
+    try {
+      if ((await stat(candidate)).isFile()) {
+        const relativeCandidate = relative(cwd, candidate);
+        files.push(relativeCandidate.length > 0 && !relativeCandidate.startsWith("..") ? relativeCandidate : candidate);
+      }
+    } catch (error) {
+      if (!isNotFoundError(error)) {
+        throw error;
+      }
+    }
+  }
+
+  return files.sort();
+}
+
+function globSegmentMatcher(segment: string): RegExp {
+  const escaped = segment.replace(/[.+^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`^${escaped.replace(/\*/g, "[^/]*").replace(/\?/g, "[^/]")}$`);
 }
 
 async function collectInteractiveBenchmarkCommand(context: CliContext): Promise<BenchmarkAuthoringCommand> {
@@ -987,6 +1263,10 @@ function formatComparability(value: unknown): string {
 
 function stringField(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function isNotFoundError(error: unknown): boolean {
+  return error instanceof Error && "code" in error && error.code === "ENOENT";
 }
 
 async function readStdin(): Promise<string> {

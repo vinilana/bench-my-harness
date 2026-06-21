@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 import type { SpecCatalogStore } from "../../../application/ports/spec-catalog-store.js";
@@ -10,7 +10,8 @@ import {
   parseSpecCatalog,
   validateSpecCatalogPath,
   type FeatureSpecDraft,
-  type LoadedSpecCatalog
+  type LoadedSpecCatalog,
+  type SpecCatalogDefaults
 } from "../../../domain/benchmark/spec-catalog.js";
 
 export class FilesystemSpecCatalogStore implements SpecCatalogStore {
@@ -58,6 +59,34 @@ export class FilesystemSpecCatalogStore implements SpecCatalogStore {
     return { catalog, specs };
   }
 
+  public async updateDefaults(input: {
+    catalogRoot: string;
+    defaults: SpecCatalogDefaults;
+  }): Promise<SpecCatalog> {
+    let catalog: SpecCatalog;
+
+    try {
+      catalog = parseSpecCatalog(await readJson(this.suitePath(input.catalogRoot)));
+    } catch (error) {
+      if (!isNotFoundError(error)) {
+        throw error;
+      }
+
+      catalog = createSpecCatalog();
+    }
+
+    const updated = parseSpecCatalog({
+      ...catalog,
+      defaults: {
+        ...(catalog.defaults ?? {}),
+        ...definedDefaults(input.defaults)
+      }
+    });
+
+    await writeJsonAtomic(this.suitePath(input.catalogRoot), updated);
+    return updated;
+  }
+
   public async writeFeatureSpec(input: {
     catalogRoot: string;
     draft: FeatureSpecDraft;
@@ -81,17 +110,7 @@ export class FilesystemSpecCatalogStore implements SpecCatalogStore {
 
   private async upsertSuiteReference(catalogRoot: string, draft: FeatureSpecDraft): Promise<void> {
     const suitePath = this.suitePath(catalogRoot);
-    let catalog: SpecCatalog;
-
-    try {
-      catalog = parseSpecCatalog(await readJson(suitePath));
-    } catch (error) {
-      if (!isNotFoundError(error)) {
-        throw error;
-      }
-
-      catalog = createSpecCatalog();
-    }
+    const catalog = await this.readOrCreateCatalog(suitePath);
 
     await mkdir(catalogRoot, { recursive: true });
     await writeJson(suitePath, addSpecToCatalog(catalog, draft.suiteReference), "w");
@@ -99,6 +118,18 @@ export class FilesystemSpecCatalogStore implements SpecCatalogStore {
 
   private suitePath(catalogRoot: string): string {
     return join(catalogRoot, "suite.json");
+  }
+
+  private async readOrCreateCatalog(path: string): Promise<SpecCatalog> {
+    try {
+      return parseSpecCatalog(await readJson(path));
+    } catch (error) {
+      if (!isNotFoundError(error)) {
+        throw error;
+      }
+
+      return createSpecCatalog();
+    }
   }
 }
 
@@ -111,6 +142,19 @@ async function writeJson(path: string, value: unknown, flag: "w" | "wx"): Promis
   await writeFile(path, `${JSON.stringify(value, null, 2)}\n`, { encoding: "utf8", flag });
 }
 
+async function writeJsonAtomic(path: string, value: unknown): Promise<void> {
+  await mkdir(dirname(path), { recursive: true });
+  const temporaryPath = `${path}.${Date.now()}.${Math.random().toString(16).slice(2)}.tmp`;
+  await writeFile(temporaryPath, `${JSON.stringify(value, null, 2)}\n`, { encoding: "utf8", flag: "w" });
+  await rename(temporaryPath, path);
+}
+
 function isNotFoundError(error: unknown): boolean {
   return error instanceof Error && "code" in error && error.code === "ENOENT";
+}
+
+function definedDefaults(defaults: SpecCatalogDefaults): SpecCatalogDefaults {
+  return Object.fromEntries(
+    Object.entries(defaults).filter(([, value]) => value !== undefined)
+  ) as SpecCatalogDefaults;
 }
