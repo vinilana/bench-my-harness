@@ -11,7 +11,7 @@ Goal:
 - Use existing documentation, specs, tickets, commit history, tests, and source code as evidence.
 - Prefer deterministic validation commands such as tests, typecheck, lint, and build.
 - Make the catalog ready for:
-  `bench-my-harness doctor`
+  `bench-my-harness check`
   `bench-my-harness run --dry-run --harness codex --harness claude_code`
 
 Rules:
@@ -45,7 +45,7 @@ Suggested workflow:
    `node ./dist/adapters/inbound/cli/main.js add <path-to-requirement.md> --base-ref <commit-before-feature> --golden-ref <commit-after-feature>`
 
 6. To create several specs from Markdown requirements with the same refs, run:
-   `node ./dist/adapters/inbound/cli/main.js import "docs/specs/*.md" --base-ref <commit-before-feature> --golden-ref <commit-after-feature>`
+   `node ./dist/adapters/inbound/cli/main.js add "docs/specs/*.md" --base-ref <commit-before-feature> --golden-ref <commit-after-feature>`
 
 7. For each candidate that only has Git history evidence, run:
    `node ./dist/adapters/inbound/cli/main.js add --from-git --include-in-suite --id <spec-id> --name "<Human name>" --category <feature|bugfix|refactor> --repo-path . --base-ref <commit-before-feature> --golden-ref <commit-after-feature> --test-command "<validation command>"`
@@ -54,10 +54,10 @@ Suggested workflow:
    `node ./dist/adapters/inbound/cli/main.js add --from-git --repo-path . --range <base>..<head> --limit 25`
 
 9. Validate the catalog:
-   `node ./dist/adapters/inbound/cli/main.js doctor`
+   `node ./dist/adapters/inbound/cli/main.js check`
 
-10. Run a dry benchmark smoke test and render the HTML report:
-   `node ./dist/adapters/inbound/cli/main.js smoke --run-id specs_smoke`
+10. Run a dry benchmark check and render the HTML report:
+   `node ./dist/adapters/inbound/cli/main.js run --dry-run --run-id specs_dry_run`
 
 11. Review the generated files:
    - `.bmh/specs/suite.json`
@@ -65,7 +65,7 @@ Suggested workflow:
    - `.bmh/specs/cases/*/benchmark.json`
 
 Acceptance criteria:
-- `bench-my-harness doctor` passes.
+- `bench-my-harness check` passes.
 - Dry-run suite execution completes.
 - `.bmh/runs/<run-id>/report.html` is generated.
 - Specs include fixed repo refs, setup commands, validation commands, limits, expected outputs, and metadata.

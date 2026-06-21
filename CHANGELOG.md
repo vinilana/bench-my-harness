@@ -6,6 +6,21 @@ This project follows semantic versioning during the v0 phase: minor versions may
 
 ## [Unreleased]
 
+### Changed
+
+- Consolidated the public CLI to five verbs: `bmh init`, `bmh add`, `bmh run`, `bmh check`, and `bmh report`.
+- Merged bulk prompt imports into `bmh add [files...]`, standalone benchmark validation into `bmh check <path>`, standalone benchmark execution into `bmh run --benchmark <path>`, and dry suite runs into `bmh run --dry-run`.
+- Added injectable TTY handling for CLI tests and interactive `bmh add` prompts that accept catalog defaults with Enter.
+
+### Removed
+
+- Removed the pre-1.0 legacy public commands `bmh benchmark ...`, `bmh import`, and `bmh doctor` without aliases.
+
+### Fixed
+
+- Corrected `bmh add --from-git` missing-ref errors so they name `add --from-git` instead of `benchmark init`.
+- Added CLI error-path coverage for required options, conflicting flags, malformed harness command JSON, unsupported YAML benchmarks, empty `add` globs, report input validation, and hook-capture provider validation.
+
 ## [0.3.0] - 2026-06-21
 
 ### Changed
@@ -39,7 +54,7 @@ This project follows semantic versioning during the v0 phase: minor versions may
   - `bmh import`
   - `bmh doctor`
   - `bmh run`
-  - `bmh smoke`
+  - `bmh run --dry-run`
   - `bmh report`
   - `bmh benchmark ...`
 - Moved standalone benchmark JSON operations under `bmh benchmark`.

@@ -5,7 +5,6 @@ import { createInterface } from "node:readline/promises";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { Command, CommanderError } from "commander";
 import { z } from "zod";
-import { CreateBenchmarkTemplateUseCase } from "../../../application/use-cases/create-benchmark-template.js";
 import { BenchmarkRunner } from "../../../application/use-cases/run-benchmark.js";
 import type { ArtifactCollectorPort } from "../../../application/ports/artifact-collector-port.js";
 import type { HarnessRunnerPort } from "../../../application/ports/harness-runner-port.js";
@@ -22,7 +21,6 @@ import { FilesystemGitDiffGenerator } from "../../outbound/filesystem/filesystem
 import { FilesystemHookEventCounter } from "../../outbound/filesystem/filesystem-hook-event-counter.js";
 import { ProcessHarnessRunner } from "../../outbound/harnesses/process-harness-runner.js";
 import { ProcessValidationRunner } from "../../outbound/harnesses/process-validation-runner.js";
-import { FilesystemBenchmarkTemplateWriter } from "../../outbound/filesystem/filesystem-benchmark-template-writer.js";
 import { FilesystemProjectCommandDetector } from "../../outbound/filesystem/filesystem-project-command-detector.js";
 import { FilesystemReportStore } from "../../outbound/storage/filesystem-report-store.js";
 import { FilesystemSuiteResultStore } from "../../outbound/storage/filesystem-suite-result-store.js";
@@ -60,6 +58,7 @@ import {
 
 const EX_USAGE = 1;
 const EX_CONFIG = 78;
+const REMOVED_PUBLIC_COMMANDS = new Set(["benchmark", "import", "doctor"]);
 
 export interface CliRuntime {
   readonly stdin?: string;
@@ -68,6 +67,7 @@ export interface CliRuntime {
   readonly cwd?: string;
   readonly env?: NodeJS.ProcessEnv;
   readonly question?: (label: string) => string | Promise<string>;
+  readonly isTty?: boolean;
 }
 
 interface CliContext {
@@ -95,7 +95,15 @@ export async function runCli(argv = process.argv, runtime: CliRuntime = {}): Pro
     runtime.stdout !== undefined ||
     runtime.stderr !== undefined ||
     runtime.cwd !== undefined ||
-    runtime.env !== undefined;
+    runtime.env !== undefined ||
+    runtime.isTty !== undefined;
+  const runtimeIsTty = runtime.isTty ?? (
+    runtime.stdin === undefined &&
+    runtime.stdout === undefined &&
+    runtime.question === undefined &&
+    process.stdin.isTTY === true &&
+    process.stdout.isTTY === true
+  );
   const context: CliContext = {
     stdin: runtime.stdin ?? (hasInjectedRuntime || process.stdin.isTTY ? "" : await readStdin()),
     stdout: runtime.stdout ?? ((chunk) => process.stdout.write(chunk)),
@@ -103,16 +111,26 @@ export async function runCli(argv = process.argv, runtime: CliRuntime = {}): Pro
     cwd: runtime.cwd ?? process.cwd(),
     env: runtime.env ?? process.env,
     question: runtime.question,
-    canPromptInteractively:
-      runtime.stdin === undefined &&
-      runtime.stdout === undefined &&
-      runtime.question === undefined &&
-      process.stdin.isTTY === true &&
-      process.stdout.isTTY === true
+    canPromptInteractively: runtimeIsTty
   };
   const program = buildProgram(context);
 
   try {
+    if (argv.length <= 2) {
+      if (context.canPromptInteractively) {
+        await runInteractiveMenu(context);
+        return 0;
+      }
+
+      program.outputHelp();
+      return EX_USAGE;
+    }
+
+    if (REMOVED_PUBLIC_COMMANDS.has(argv[2] ?? "")) {
+      context.stderr(`unknown command: ${argv[2]}\n`);
+      return EX_USAGE;
+    }
+
     await program.parseAsync(argv, { from: "node" });
     return 0;
   } catch (error) {
@@ -151,6 +169,10 @@ export function buildProgram(context: CliContext): Command {
     });
   program.addCommand(internal, { hidden: true });
 
+  addRemovedCommand(program, "benchmark");
+  addRemovedCommand(program, "import");
+  addRemovedCommand(program, "doctor");
+
   internal
     .command("hook-capture")
     .description("Capture one harness hook event from stdin.")
@@ -173,8 +195,8 @@ export function buildProgram(context: CliContext): Command {
       const result = await runHookCapture({
         provider,
         event: options.event,
-        runId: options.runId ?? context.env.BMH_RUN_ID ?? "",
-        trialId: options.trialId ?? context.env.BMH_TRIAL_ID ?? "",
+        runId: requiredOption(options.runId ?? context.env.BMH_RUN_ID, "internal hook-capture", "--run-id"),
+        trialId: requiredOption(options.trialId ?? context.env.BMH_TRIAL_ID, "internal hook-capture", "--trial-id"),
         stdin: context.stdin,
         spoolPath: resolvePath(context.cwd, options.spool),
         ingestUrl: options.ingestUrl,
@@ -192,135 +214,6 @@ export function buildProgram(context: CliContext): Command {
 
       if (result.exitCode !== 0) {
         throw new CliExit(result.exitCode, result.stderr);
-      }
-    });
-
-  const benchmark = program.command("benchmark").description("Advanced standalone benchmark JSON commands.");
-
-  benchmark
-    .command("init")
-    .description("Create a benchmark JSON file.")
-    .requiredOption("--output <path>", "output benchmark JSON path")
-    .option("--template", "write a benchmark template from flags", false)
-    .option("--id <id>", "benchmark id")
-    .option("--name <name>", "benchmark name")
-    .option("--category <category>", "benchmark category")
-    .option("--repo-url <url>", "source repository URL")
-    .option("--repo-path <path>", "local source repository path")
-    .option("--fixture-path <path>", "fixture workspace path")
-    .option("--detect-commands", "detect setup and validation commands from --repo-path", false)
-    .option("--commit <commit>", "repository commit")
-    .option("--setup-command <command>", "setup command", collectOptionValue, [])
-    .option("--test-command <command>", "test command", collectOptionValue, [])
-    .option("--prompt <text>", "inline prompt text")
-    .option("--prompt-file <path>", "Markdown prompt file path")
-    .option("--constraint <constraint>", "prompt constraint", collectOptionValue, [])
-    .option("--timeout-seconds <seconds>", "timeout seconds", parsePositiveInt)
-    .option("--max-cost-usd <usd>", "maximum cost in USD", parseNonnegativeNumber)
-    .option("--required-file-changed <path>", "required changed file path", collectOptionValue, [])
-    .option("--forbidden-file-changed <path>", "forbidden changed file path", collectOptionValue, [])
-    .option("--semantic-requirement <requirement>", "semantic requirement", collectOptionValue, [])
-    .option("--force", "overwrite existing output", false)
-    .action(async (options: InitBenchmarkOptions) => {
-      const command =
-        options.template || hasNonInteractiveAuthoringOptions(options)
-          ? await commandFromTemplateOptions(options, context.cwd)
-          : normalizeInteractiveCommand(await collectInteractiveBenchmarkCommand(context), context.cwd);
-
-      const benchmark = new CreateBenchmarkTemplateUseCase().execute(command);
-      const outputPath = resolvePath(context.cwd, options.output);
-
-      await new FilesystemBenchmarkTemplateWriter().write({
-        benchmark,
-        outputPath,
-        force: options.force ?? false
-      });
-
-      context.stdout(`benchmark template written: ${outputPath}\n`);
-    });
-
-  benchmark
-    .command("validate")
-    .description("Validate a benchmark JSON fixture.")
-    .argument("<path>", "benchmark JSON file")
-    .action(async (path: string) => {
-      try {
-        const { benchmark, directory } = await readBenchmarkFile(path, context.cwd);
-        await validateBenchmarkPrompt(benchmark, directory);
-        context.stdout(`benchmark valid: ${benchmark.id}@${benchmark.version}\n`);
-      } catch (error) {
-        context.stderr(`benchmark invalid: ${formatError(error)}\n`);
-        throw new CliExit(EX_USAGE, "benchmark invalid");
-      }
-    });
-
-  benchmark
-    .command("run")
-    .description("Run one benchmark trial.")
-    .requiredOption("--benchmark <path>", "benchmark JSON file")
-    .requiredOption("--harness <harness>", "harness: codex or claude_code")
-    .option("--workspace-root <path>", "root directory for trial workspace", ".bmh/workspaces")
-    .option("--run-id <runId>", "run id", defaultRunId())
-    .option("--trial-id <trialId>", "trial id", "trial_1")
-    .option("--strict-telemetry", "fail trial on telemetry failures", false)
-    .option("--dry-run", "use a fake harness runner instead of Codex or Claude Code binaries", false)
-    .option("--run-validation", "execute benchmark setup and validation commands after harness execution", false)
-    .option("--harness-command-json <json>", "JSON command config for a fake/local harness process")
-    .action(async (options: RunCommandOptions) => {
-      const harness = parseProvider(options.harness);
-      const { benchmark, directory } = await readBenchmarkFile(options.benchmark, context.cwd);
-
-      const configuredCommand = options.harnessCommandJson
-        ? parseHarnessCommandJson(options.harnessCommandJson)
-        : undefined;
-
-      if (!options.dryRun && !configuredCommand) {
-        context.stderr(
-          "process harness execution is not configured for this CLI build; rerun with --dry-run or configure a real harness runner\n"
-        );
-        throw new CliExit(EX_CONFIG, "process harness execution is not configured");
-      }
-
-      const runner = new BenchmarkRunner({
-        hookInstaller: options.dryRun ? new DryRunHookInstaller() : hookInstallerFor(harness),
-        harnessRunner: configuredCommand
-          ? new ProcessHarnessRunner({
-              [harness]: configuredCommand.command
-            })
-          : new DryRunHarnessRunner(),
-        validationRunner: options.runValidation ? new ProcessValidationRunner() : undefined,
-        diffGenerator: options.dryRun ? undefined : new FilesystemGitDiffGenerator(),
-        usageCapture: options.dryRun ? undefined : new FilesystemUsageCapture(),
-        transcriptResolver: options.dryRun ? undefined : new FilesystemProviderTranscriptResolver({ env: context.env }),
-        artifactCollector: new DryRunArtifactCollector(),
-        workspaceProvisioner: options.dryRun ? new DryRunWorkspaceProvisioner() : new FilesystemWorkspaceProvisioner(),
-        promptResolver: new ResolveBenchmarkPromptUseCase(new FilesystemPromptFileReader())
-      });
-      const result = await runner.runTrial({
-        benchmark,
-        harness,
-        runId: options.runId,
-        trialId: options.trialId,
-        workspaceRoot: resolvePath(context.cwd, options.workspaceRoot),
-        promptRoot: directory,
-        strictTelemetry: options.strictTelemetry ?? false
-      });
-
-      context.stdout(
-        `${JSON.stringify({
-          run_id: options.runId,
-          trial_id: options.trialId,
-          benchmark: `${benchmark.id}@${benchmark.version}`,
-          harness,
-          mode: configuredCommand ? "process" : "dry-run",
-          status: result.status,
-          failure_classification: result.failure_classification,
-          workspace: result.workspace
-        })}\n`
-      );
-
-      if (result.status !== "completed") {
-        throw new CliExit(EX_USAGE, result.failure_classification ?? "benchmark failed");
       }
     });
 
@@ -388,8 +281,8 @@ export function buildProgram(context: CliContext): Command {
 
   program
     .command("add")
-    .description("Create a feature spec in .bmh/specs.")
-    .argument("[promptFile]", "Markdown prompt/spec file to copy into the catalog")
+    .description("Create one or more feature specs in .bmh/specs.")
+    .argument("[promptFiles...]", "Markdown prompt/spec files or simple glob patterns to copy into the catalog")
     .option("--catalog-root <path>", "spec catalog root", ".bmh/specs")
     .option("--id <id>", "spec id")
     .option("--name <name>", "spec name")
@@ -407,13 +300,36 @@ export function buildProgram(context: CliContext): Command {
     .option("--tag <tag>", "spec tag", collectOptionValue, [])
     .option("--include-in-suite", "add the spec to suite.json")
     .option("--force", "overwrite generated spec files", false)
-    .action(async (promptFileArg: string | undefined, options: SpecsCreateOptions) => {
+    .action(async (promptFileArgs: readonly string[], options: SpecsCreateOptions) => {
       const catalogRoot = resolvePath(context.cwd, options.catalogRoot ?? ".bmh/specs");
-      if (promptFileArg !== undefined && options.promptFile !== undefined) {
+      if (promptFileArgs.length > 0 && options.promptFile !== undefined) {
         throw new Error("add accepts either <promptFile> or --prompt-file, not both");
       }
 
-      const promptFile = promptFileArg ?? options.promptFile;
+      if (promptFileArgs.length > 1 || promptFileArgs.some(hasGlobPattern)) {
+        const defaults = await loadSpecDefaults(catalogRoot);
+        const repoPathOption = options.repoPath ?? defaults?.repo_path ?? ".";
+        const expanded = await expandPromptFiles(context.cwd, promptFileArgs, "add");
+        const prompts = expanded.map((promptPath) => ({ promptPath }));
+        const drafts = await new ImportFeatureSpecsUseCase({
+          store: new FilesystemSpecCatalogStore(),
+          promptReader: new FilesystemPromptFileReader(),
+          resolveRepoUrl: (repoPath) => repoPathToFileUrl(context.cwd, repoPath)
+        }).execute({
+          catalogRoot,
+          promptRoot: context.cwd,
+          repoUrl: repoPathToFileUrl(context.cwd, repoPathOption),
+          prompts,
+          baseRef: options.baseRef,
+          goldenRef: options.goldenRef,
+          force: options.force ?? false
+        });
+
+        context.stdout(`specs added: ${drafts.length}\n`);
+        return;
+      }
+
+      const promptFile = promptFileArgs[0] ?? options.promptFile;
       const defaults = await loadSpecDefaults(catalogRoot);
       const repoPathOption = options.repoPath ?? defaults?.repo_path ?? ".";
       const repoPath = resolvePath(context.cwd, repoPathOption);
@@ -424,9 +340,13 @@ export function buildProgram(context: CliContext): Command {
       const category = options.category === undefined ? defaults?.category : parseCategory(options.category);
 
       if (promptFile === undefined && options.fromGit !== true && hasNoManualSpecFields(options)) {
+        if (!context.canPromptInteractively) {
+          throw new Error("add requires a prompt file, --from-git, or an interactive TTY");
+        }
+
         const command = normalizeInteractiveCommand(await collectInteractiveBenchmarkCommand(context), context.cwd);
         if (command.repoUrl === undefined) {
-          throw new Error("add interactive mode requires a repo source; use benchmark init for fixture benchmarks");
+          throw new Error("add interactive mode requires a repo source");
         }
 
         const draft = await new CreateFeatureSpecUseCase(new FilesystemSpecCatalogStore()).execute({
@@ -488,8 +408,8 @@ export function buildProgram(context: CliContext): Command {
           id: options.id,
           name: options.name,
           category: category ?? "feature",
-          baseRef: requiredOption(options.baseRef, "--base-ref"),
-          goldenRef: requiredOption(options.goldenRef, "--golden-ref"),
+          baseRef: requiredOption(options.baseRef, "add --from-git", "--base-ref"),
+          goldenRef: requiredOption(options.goldenRef, "add --from-git", "--golden-ref"),
           setupCommands,
           testCommands,
           includeInSuite: options.includeInSuite ?? false,
@@ -558,42 +478,22 @@ export function buildProgram(context: CliContext): Command {
     });
 
   program
-    .command("import")
-    .description("Create feature specs from Markdown prompt files.")
-    .argument("<promptFiles...>", "Markdown prompt/spec files or simple glob patterns")
+    .command("check")
+    .description("Validate the spec catalog and/or a benchmark JSON file.")
+    .argument("[path]", "optional benchmark JSON file")
     .option("--catalog-root <path>", "spec catalog root", ".bmh/specs")
-    .option("--repo-path <path>", "local repository path")
-    .option("--base-ref <ref>", "base git ref")
-    .option("--golden-ref <ref>", "golden git ref")
-    .option("--force", "overwrite generated spec files", false)
-    .action(async (promptFiles: readonly string[], options: SpecsImportOptions) => {
-      const catalogRoot = resolvePath(context.cwd, options.catalogRoot ?? ".bmh/specs");
-      const defaults = await loadSpecDefaults(catalogRoot);
-      const repoPathOption = options.repoPath ?? defaults?.repo_path ?? ".";
-      const expanded = await expandPromptFiles(context.cwd, promptFiles);
-      const prompts = expanded.map((promptPath) => ({ promptPath }));
-      const drafts = await new ImportFeatureSpecsUseCase({
-        store: new FilesystemSpecCatalogStore(),
-        promptReader: new FilesystemPromptFileReader(),
-        resolveRepoUrl: (repoPath) => repoPathToFileUrl(context.cwd, repoPath)
-      }).execute({
-        catalogRoot,
-        promptRoot: context.cwd,
-        repoUrl: repoPathToFileUrl(context.cwd, repoPathOption),
-        prompts,
-        baseRef: options.baseRef,
-        goldenRef: options.goldenRef,
-        force: options.force ?? false
-      });
+    .action(async (path: string | undefined, options: SpecsCatalogOptions) => {
+      if (path !== undefined) {
+        try {
+          const { benchmark, directory } = await readBenchmarkFile(path, context.cwd);
+          await validateBenchmarkPrompt(benchmark, directory);
+          context.stdout(`benchmark valid: ${benchmark.id}@${benchmark.version}\n`);
+        } catch (error) {
+          context.stderr(`check invalid: ${formatError(error)}\n`);
+          throw new CliExit(EX_USAGE, "check invalid");
+        }
+      }
 
-      context.stdout(`specs imported: ${drafts.length}\n`);
-    });
-
-  program
-    .command("doctor")
-    .description("Check spec catalog and local harness readiness.")
-    .option("--catalog-root <path>", "spec catalog root", ".bmh/specs")
-    .action(async (options: SpecsCatalogOptions) => {
       try {
         const loaded = await new LoadSpecCatalogUseCase(new FilesystemSpecCatalogStore()).execute({
           catalogRoot: resolvePath(context.cwd, options.catalogRoot ?? ".bmh/specs")
@@ -607,18 +507,24 @@ export function buildProgram(context: CliContext): Command {
           context.stdout(`${harness}: ${status}\n`);
         }
       } catch (error) {
-        context.stderr(`doctor failed: ${formatError(error)}\n`);
-        throw new CliExit(EX_USAGE, "doctor failed");
+        if (path !== undefined && isNotFoundError(error)) {
+          return;
+        }
+
+        context.stderr(`check failed: ${formatError(error)}\n`);
+        throw new CliExit(EX_USAGE, "check failed");
       }
     });
 
   program
     .command("run")
-    .description("Run a spec catalog suite.")
+    .description("Run the spec catalog suite, or one benchmark with --benchmark.")
+    .option("--benchmark <path>", "benchmark JSON file for single-benchmark mode")
     .option("--catalog-root <path>", "spec catalog root", ".bmh/specs")
     .option("--store-root <path>", "suite result store root", ".bmh/runs")
     .option("--workspace-root <path>", "root directory for trial workspace")
     .option("--run-id <runId>", "run id", defaultRunId())
+    .option("--trial-id <trialId>", "single-benchmark trial id", "trial_1")
     .option("--harness <harness>", "harness: codex or claude_code", collectOptionValue, [])
     .option("--spec <spec>", "spec id", collectOptionValue, [])
     .option("--tag <tag>", "tag", collectOptionValue, [])
@@ -628,7 +534,70 @@ export function buildProgram(context: CliContext): Command {
     .option("--dry-run", "use a fake harness runner", false)
     .option("--real", "run real harness processes", false)
     .option("--harness-command-json <json>", "JSON command config for suite process harnesses")
+    .option("--run-validation", "execute benchmark setup and validation commands in single-benchmark mode", false)
     .action(async (options: SpecsRunOptions) => {
+      if (options.benchmark !== undefined) {
+        const harness = parseProvider(singleHarnessOption(options.harness, "run --benchmark"));
+        const { benchmark, directory } = await readBenchmarkFile(options.benchmark, context.cwd);
+        const configuredCommand = options.harnessCommandJson
+          ? parseHarnessCommandJson(options.harnessCommandJson, "run --benchmark --harness-command-json")
+          : undefined;
+
+        if (!options.dryRun && !configuredCommand) {
+          context.stderr(
+            "run --benchmark requires --dry-run or --harness-command-json for process execution\n"
+          );
+          throw new CliExit(EX_CONFIG, "run benchmark process harness execution is not configured");
+        }
+
+        const runner = new BenchmarkRunner({
+          hookInstaller: options.dryRun ? new DryRunHookInstaller() : hookInstallerFor(harness),
+          harnessRunner: configuredCommand
+            ? new ProcessHarnessRunner({
+                [harness]: configuredCommand.command
+              })
+            : new DryRunHarnessRunner(),
+          validationRunner: options.runValidation ? new ProcessValidationRunner() : undefined,
+          diffGenerator: options.dryRun ? undefined : new FilesystemGitDiffGenerator(),
+          usageCapture: options.dryRun ? undefined : new FilesystemUsageCapture(),
+          transcriptResolver: options.dryRun ? undefined : new FilesystemProviderTranscriptResolver({ env: context.env }),
+          artifactCollector: new DryRunArtifactCollector(),
+          workspaceProvisioner: options.dryRun ? new DryRunWorkspaceProvisioner() : new FilesystemWorkspaceProvisioner(),
+          promptResolver: new ResolveBenchmarkPromptUseCase(new FilesystemPromptFileReader())
+        });
+        const result = await runner.runTrial({
+          benchmark,
+          harness,
+          runId: options.runId,
+          trialId: options.trialId,
+          workspaceRoot: resolvePath(context.cwd, options.workspaceRoot ?? ".bmh/workspaces"),
+          promptRoot: directory,
+          strictTelemetry: options.strictTelemetry ?? false
+        });
+
+        context.stdout(
+          `${JSON.stringify({
+            run_id: options.runId,
+            trial_id: options.trialId,
+            benchmark: `${benchmark.id}@${benchmark.version}`,
+            harness,
+            mode: configuredCommand ? "process" : "dry-run",
+            status: result.status,
+            failure_classification: result.failure_classification,
+            workspace: result.workspace
+          })}\n`
+        );
+
+        if (result.status !== "completed") {
+          const safeDiagnostic = safeProcessDiagnosticMessage(result.process_diagnostics?.stderr);
+          if (safeDiagnostic !== undefined) {
+            context.stderr(`${safeDiagnostic}\n`);
+          }
+          throw new CliExit(EX_USAGE, result.failure_classification ?? "benchmark failed");
+        }
+        return;
+      }
+
       const loaded = await new LoadSpecCatalogUseCase(new FilesystemSpecCatalogStore()).execute({
         catalogRoot: resolvePath(context.cwd, options.catalogRoot ?? ".bmh/specs")
       });
@@ -637,12 +606,55 @@ export function buildProgram(context: CliContext): Command {
       const resolvedHarnesses = harnesses ?? loaded.catalog.defaults?.harnesses ?? ["codex", "claude_code"];
 
       if (options.dryRun === true && options.real === true) {
-        context.stderr("spec suite cannot use --real and --dry-run together\n");
+        context.stderr("run cannot use --real and --dry-run together\n");
         throw new CliExit(EX_USAGE, "spec suite real and dry-run modes are mutually exclusive");
       }
 
-      if (options.dryRun !== true && options.real !== true) {
-        context.stderr("spec suite real harness execution is not configured for this CLI build; rerun with --dry-run\n");
+      if (options.dryRun === true) {
+        const runner = new BenchmarkRunner({
+          hookInstaller: new DryRunHookInstaller(),
+          harnessRunner: new DryRunHarnessRunner(),
+          diffGenerator: undefined,
+          artifactCollector: new DryRunArtifactCollector(),
+          workspaceProvisioner: new DryRunWorkspaceProvisioner(),
+          promptResolver: new ResolveBenchmarkPromptUseCase(new FilesystemPromptFileReader())
+        });
+        const hasExplicitSuiteSelection =
+          hasEntries(options.harness) ||
+          hasEntries(options.spec) ||
+          hasEntries(options.tag) ||
+          options.trials !== undefined ||
+          options.strictTelemetry !== undefined;
+        const store = new FilesystemSuiteResultStore({
+          root: resolvePath(context.cwd, options.storeRoot ?? ".bmh/runs")
+        });
+        const report = hasExplicitSuiteSelection
+          ? await new RunSpecSuiteUseCase(store).execute({
+              loadedCatalog: loaded,
+              runner,
+              runId: options.runId,
+              harnesses: resolvedHarnesses,
+              specIds: options.spec,
+              tags: options.tag,
+              trials: options.trials,
+              workspaceRoot: resolvePath(context.cwd, options.workspaceRoot ?? loaded.catalog.defaults?.workspace_root ?? ".bmh/workspaces"),
+              catalogRoot: resolvePath(context.cwd, options.catalogRoot ?? ".bmh/specs"),
+              strictTelemetry: options.strictTelemetry
+            })
+          : await new RunSpecSuiteSmokeUseCase(store).execute({
+              loadedCatalog: loaded,
+              runner,
+              runId: options.runId,
+              workspaceRoot: resolvePath(context.cwd, options.workspaceRoot ?? loaded.catalog.defaults?.workspace_root ?? ".bmh/workspaces"),
+              catalogRoot: resolvePath(context.cwd, options.catalogRoot ?? ".bmh/specs")
+            });
+
+        context.stdout(`spec suite dry-run complete: ${report.run_id} (${report.trial_count} trials)\n`);
+        return;
+      }
+
+      if (options.real !== true) {
+        context.stderr("run requires --dry-run or --real in non-interactive mode\n");
         throw new CliExit(EX_CONFIG, "spec suite real harness execution is not configured");
       }
 
@@ -689,38 +701,6 @@ export function buildProgram(context: CliContext): Command {
       });
 
       context.stdout(`spec suite run complete: ${report.run_id} (${report.trial_count} trials)\n`);
-    });
-
-  program
-    .command("smoke")
-    .description("Run a dry one-trial spec suite smoke test.")
-    .option("--catalog-root <path>", "spec catalog root", ".bmh/specs")
-    .option("--store-root <path>", "suite result store root", ".bmh/runs")
-    .option("--workspace-root <path>", "root directory for trial workspace")
-    .option("--run-id <runId>", "run id", defaultRunId())
-    .action(async (options: SpecsSmokeOptions) => {
-      const loaded = await new LoadSpecCatalogUseCase(new FilesystemSpecCatalogStore()).execute({
-        catalogRoot: resolvePath(context.cwd, options.catalogRoot ?? ".bmh/specs")
-      });
-      const runner = new BenchmarkRunner({
-        hookInstaller: new DryRunHookInstaller(),
-        harnessRunner: new DryRunHarnessRunner(),
-        diffGenerator: undefined,
-        artifactCollector: new DryRunArtifactCollector(),
-        workspaceProvisioner: new DryRunWorkspaceProvisioner(),
-        promptResolver: new ResolveBenchmarkPromptUseCase(new FilesystemPromptFileReader())
-      });
-      const report = await new RunSpecSuiteSmokeUseCase(new FilesystemSuiteResultStore({
-        root: resolvePath(context.cwd, options.storeRoot ?? ".bmh/runs")
-      })).execute({
-        loadedCatalog: loaded,
-        runner,
-        runId: options.runId,
-        workspaceRoot: resolvePath(context.cwd, options.workspaceRoot ?? loaded.catalog.defaults?.workspace_root ?? ".bmh/workspaces"),
-        catalogRoot: resolvePath(context.cwd, options.catalogRoot ?? ".bmh/specs")
-      });
-
-      context.stdout(`spec suite smoke complete: ${report.run_id} (${report.trial_count} trials)\n`);
     });
 
   program
@@ -772,6 +752,112 @@ export function buildProgram(context: CliContext): Command {
     });
 
   return program;
+}
+
+function addRemovedCommand(program: Command, name: string): void {
+  const command = program
+    .command(name, { hidden: true })
+    .allowUnknownOption(true)
+    .allowExcessArguments(true)
+    .action(() => {
+      throw new Error(`unknown command: ${name}`);
+    });
+  command.helpOption(false);
+  command.exitOverride();
+  command.configureHelp({
+    helpWidth: 0
+  });
+  command.on("--help", () => {
+    throw new Error(`unknown command: ${name}`);
+  });
+}
+
+async function runInteractiveMenu(context: CliContext): Promise<void> {
+  const choices = ["Set up a catalog", "Add a spec", "Run", "Check", "View report"];
+  context.stdout(`${choices.join("\n")}\n`);
+
+  if (context.stdin.trim().length === 0 && context.question === undefined) {
+    return;
+  }
+
+  const stdinLines = context.stdin.split(/\r?\n/);
+  const answer = context.question
+    ? await context.question("Action")
+    : stdinLines[0] ?? "";
+  const branchContext = context.question
+    ? context
+    : {
+        ...context,
+        stdin: stdinLines.slice(1).join("\n")
+      };
+  const normalized = answer.trim().toLowerCase();
+  if (normalized.length === 0) {
+    return;
+  }
+
+  if (["1", "init", "set up a catalog", "setup"].includes(normalized)) {
+    const catalogRoot = resolvePath(context.cwd, ".bmh/specs");
+    const catalog = await new CreateSpecCatalogUseCase(new FilesystemSpecCatalogStore()).execute({
+      catalogRoot,
+      force: false
+    });
+    context.stdout(`spec catalog initialized: ${resolvePath(catalogRoot, "suite.json")} (${catalog.id}@${catalog.version})\n`);
+    return;
+  }
+
+  if (["2", "add", "add a spec"].includes(normalized)) {
+    const command = normalizeInteractiveCommand(await collectInteractiveBenchmarkCommand(branchContext), context.cwd);
+    if (command.repoUrl === undefined) {
+      throw new Error("add interactive mode requires a repo source");
+    }
+
+    const catalogRoot = resolvePath(context.cwd, ".bmh/specs");
+    const defaults = await loadSpecDefaults(catalogRoot);
+    const draft = await new CreateFeatureSpecUseCase(new FilesystemSpecCatalogStore()).execute({
+      catalogRoot,
+      repoUrl: command.repoUrl,
+      id: command.id,
+      name: command.name,
+      category: parseCategory(command.category),
+      setupCommands: command.setupCommands,
+      testCommands: command.testCommands,
+      promptMarkdown: await promptMarkdownFromInteractiveCommand(command, context.cwd),
+      constraints: command.constraints,
+      timeoutSeconds: command.timeoutSeconds,
+      maxCostUsd: command.maxCostUsd,
+      requiredFilesChanged: command.requiredFilesChanged,
+      forbiddenFilesChanged: command.forbiddenFilesChanged,
+      semanticRequirements: command.semanticRequirements,
+      metadata: {
+        source: "manual_cli",
+        source_prompt_file: command.promptFile
+      },
+      includeInSuite: defaults?.include_in_suite ?? true,
+      force: false
+    });
+    context.stdout(`spec created: ${resolvePath(catalogRoot, draft.benchmarkPath)}\n`);
+    return;
+  }
+
+  if (["3", "run"].includes(normalized)) {
+    context.stdout("run requires choosing --dry-run or --real from the command line\n");
+    return;
+  }
+
+  if (["4", "check"].includes(normalized)) {
+    const loaded = await new LoadSpecCatalogUseCase(new FilesystemSpecCatalogStore()).execute({
+      catalogRoot: resolvePath(context.cwd, ".bmh/specs")
+    });
+    context.stdout(`spec catalog: valid ${loaded.catalog.id}@${loaded.catalog.version} (${loaded.specs.length} specs)\n`);
+    return;
+  }
+
+  if (["5", "report", "view report"].includes(normalized)) {
+    context.stdout("report requires --input <path> or --run-id <id> from the command line\n");
+    return;
+  }
+
+  throw new Error(`unknown menu choice: ${answer}`);
 }
 
 interface HookCaptureCommandOptions {
@@ -847,9 +933,11 @@ interface SpecsCreateOptions extends SpecsCatalogOptions {
 }
 
 interface SpecsRunOptions extends SpecsCatalogOptions {
+  readonly benchmark?: string;
   readonly storeRoot?: string;
   readonly workspaceRoot?: string;
   readonly runId: string;
+  readonly trialId: string;
   readonly harness?: readonly string[];
   readonly spec?: readonly string[];
   readonly tag?: readonly string[];
@@ -858,6 +946,7 @@ interface SpecsRunOptions extends SpecsCatalogOptions {
   readonly dryRun?: boolean;
   readonly real?: boolean;
   readonly harnessCommandJson?: string;
+  readonly runValidation?: boolean;
 }
 
 interface SpecsImportOptions extends SpecsCatalogOptions {
@@ -871,84 +960,6 @@ interface SpecsSmokeOptions extends SpecsCatalogOptions {
   readonly storeRoot?: string;
   readonly workspaceRoot?: string;
   readonly runId: string;
-}
-
-interface InitBenchmarkOptions {
-  readonly output: string;
-  readonly template?: boolean;
-  readonly id?: string;
-  readonly name?: string;
-  readonly category?: string;
-  readonly repoUrl?: string;
-  readonly repoPath?: string;
-  readonly fixturePath?: string;
-  readonly detectCommands?: boolean;
-  readonly commit?: string;
-  readonly setupCommand?: readonly string[];
-  readonly testCommand?: readonly string[];
-  readonly prompt?: string;
-  readonly promptFile?: string;
-  readonly constraint?: readonly string[];
-  readonly timeoutSeconds?: number;
-  readonly maxCostUsd?: number;
-  readonly requiredFileChanged?: readonly string[];
-  readonly forbiddenFileChanged?: readonly string[];
-  readonly semanticRequirement?: readonly string[];
-  readonly force?: boolean;
-}
-
-async function commandFromTemplateOptions(options: InitBenchmarkOptions, cwd: string): Promise<BenchmarkAuthoringCommand> {
-  const sourceCount =
-    Number(options.repoUrl !== undefined) + Number(options.repoPath !== undefined) + Number(options.fixturePath !== undefined);
-
-  if (sourceCount > 1) {
-    throw new Error("benchmark init requires only one of --repo-url, --repo-path, or --fixture-path");
-  }
-
-  const generatedCommands = await generatedCommandsFromTemplateOptions(options, cwd);
-  const generatedIdentity = generateDefaultSpecIdentity();
-
-  return {
-    id: options.id ?? generatedIdentity.id,
-    name: options.name ?? generatedIdentity.name,
-    category: options.category === undefined ? "feature" : parseCategory(options.category),
-    repoUrl: options.repoPath === undefined ? options.repoUrl : repoPathToFileUrl(cwd, options.repoPath),
-    fixturePath: options.fixturePath,
-    commit: options.commit,
-    setupCommands: generatedCommands?.setupCommands ?? options.setupCommand ?? [],
-    testCommands: generatedCommands?.testCommands ?? options.testCommand ?? [],
-    promptText: options.prompt,
-    promptFile: options.promptFile,
-    constraints: options.constraint ?? [],
-    timeoutSeconds: options.timeoutSeconds,
-    maxCostUsd: options.maxCostUsd,
-    requiredFilesChanged: options.requiredFileChanged ?? [],
-    forbiddenFilesChanged: options.forbiddenFileChanged ?? [],
-    semanticRequirements: options.semanticRequirement ?? []
-  };
-}
-
-function hasNonInteractiveAuthoringOptions(options: InitBenchmarkOptions): boolean {
-  return (
-    options.id !== undefined ||
-    options.name !== undefined ||
-    options.category !== undefined ||
-    options.repoUrl !== undefined ||
-    options.repoPath !== undefined ||
-    options.fixturePath !== undefined ||
-    options.commit !== undefined ||
-    options.detectCommands === true ||
-    hasEntries(options.setupCommand) ||
-    hasEntries(options.testCommand) ||
-    options.prompt !== undefined ||
-    options.promptFile !== undefined ||
-    hasEntries(options.constraint) ||
-    options.timeoutSeconds !== undefined ||
-    options.maxCostUsd !== undefined ||
-    hasEntries(options.requiredFileChanged) ||
-    hasEntries(options.forbiddenFileChanged) ||
-    hasEntries(options.semanticRequirement)
-  );
 }
 
 function hasNoManualSpecFields(options: SpecsCreateOptions): boolean {
@@ -974,25 +985,6 @@ async function promptMarkdownFromInteractiveCommand(command: BenchmarkAuthoringC
   return `# ${command.name}\n\n${command.promptText ?? "TODO: Describe the feature behavior to implement."}\n`;
 }
 
-async function generatedCommandsFromTemplateOptions(
-  options: InitBenchmarkOptions,
-  cwd: string
-): Promise<{ readonly setupCommands: readonly string[]; readonly testCommands: readonly string[] } | undefined> {
-  if (options.detectCommands !== true) {
-    return undefined;
-  }
-
-  if (options.repoPath === undefined || options.repoUrl !== undefined || options.fixturePath !== undefined) {
-    throw new Error("benchmark init --detect-commands requires --repo-path and does not support --repo-url or --fixture-path");
-  }
-
-  if (hasEntries(options.setupCommand) || hasEntries(options.testCommand)) {
-    throw new Error("benchmark init --detect-commands cannot be used with manual setup or test commands");
-  }
-
-  return generateProjectCommands(cwd, options.repoPath);
-}
-
 function normalizeInteractiveCommand(command: BenchmarkAuthoringCommand, cwd: string): BenchmarkAuthoringCommand {
   if (command.repoUrl === undefined || !isLocalRepoPath(command.repoUrl)) {
     return command;
@@ -1016,9 +1008,9 @@ function collectOptionValue(value: string, previous: readonly string[] | undefin
   return [...(previous ?? []), value];
 }
 
-function requiredOption(value: string | undefined, option: string): string {
+function requiredOption(value: string | undefined, command: string, option: string): string {
   if (value === undefined || value.trim().length === 0) {
-    throw new Error(`benchmark init requires ${option}`);
+    throw new Error(`${command} requires ${option}`);
   }
 
   return value;
@@ -1044,7 +1036,11 @@ async function loadSpecDefaults(catalogRoot: string): Promise<SpecCatalogDefault
   }
 }
 
-async function expandPromptFiles(cwd: string, promptFiles: readonly string[]): Promise<readonly string[]> {
+async function expandPromptFiles(
+  cwd: string,
+  promptFiles: readonly string[],
+  command = "import"
+): Promise<readonly string[]> {
   const expanded: string[] = [];
 
   for (const promptFile of promptFiles) {
@@ -1055,13 +1051,25 @@ async function expandPromptFiles(cwd: string, promptFiles: readonly string[]): P
 
     const matches = await expandGlobPattern(cwd, promptFile);
     if (matches.length === 0) {
-      throw new Error(`prompt file pattern matched no files: ${promptFile}`);
+      throw new Error(`${command} prompt file pattern matched no files: ${promptFile}`);
     }
 
     expanded.push(...matches);
   }
 
   return expanded;
+}
+
+function singleHarnessOption(harnesses: readonly string[] | undefined, command: string): string {
+  if (harnesses === undefined || harnesses.length === 0) {
+    throw new Error(`${command} requires --harness`);
+  }
+
+  if (harnesses.length !== 1) {
+    throw new Error(`${command} accepts exactly one --harness`);
+  }
+
+  return harnesses[0];
 }
 
 function hasGlobPattern(path: string): boolean {
@@ -1133,8 +1141,20 @@ async function collectInteractiveBenchmarkCommand(context: CliContext): Promise<
   if (context.question) {
     return new InteractiveBenchmarkAuthoring({
       question: context.question,
+      stdout: context.stdout,
       generateCommands: (repoPath) => generateProjectCommands(context.cwd, repoPath),
-      isLocalRepoPath
+      isLocalRepoPath,
+      defaults: await loadSpecDefaults(resolvePath(context.cwd, ".bmh/specs"))
+    }).collect();
+  }
+
+  if (context.canPromptInteractively && context.stdin.length > 0) {
+    return new InteractiveBenchmarkAuthoring({
+      stdin: context.stdin,
+      stdout: context.stdout,
+      generateCommands: (repoPath) => generateProjectCommands(context.cwd, repoPath),
+      isLocalRepoPath,
+      defaults: await loadSpecDefaults(resolvePath(context.cwd, ".bmh/specs"))
     }).collect();
   }
 
@@ -1146,9 +1166,11 @@ async function collectInteractiveBenchmarkCommand(context: CliContext): Promise<
 
     try {
       return await new InteractiveBenchmarkAuthoring({
-        question: (label) => readline.question(`${label}: `),
+        stdout: context.stdout,
+        question: () => readline.question(""),
         generateCommands: (repoPath) => generateProjectCommands(context.cwd, repoPath),
-        isLocalRepoPath
+        isLocalRepoPath,
+        defaults: await loadSpecDefaults(resolvePath(context.cwd, ".bmh/specs"))
       }).collect();
     } finally {
       readline.close();
@@ -1159,7 +1181,8 @@ async function collectInteractiveBenchmarkCommand(context: CliContext): Promise<
     stdin: context.stdin,
     stdout: context.stdout,
     generateCommands: (repoPath) => generateProjectCommands(context.cwd, repoPath),
-    isLocalRepoPath
+    isLocalRepoPath,
+    defaults: await loadSpecDefaults(resolvePath(context.cwd, ".bmh/specs"))
   }).collect();
 }
 
@@ -1218,15 +1241,18 @@ function parseCategory(category: string): BenchmarkCategory {
   fail(EX_USAGE, `unsupported category: ${category}`);
 }
 
-function parseHarnessCommandJson(json: string): { command: HarnessCommand; env: Record<string, string> } {
+function parseHarnessCommandJson(
+  json: string,
+  label = "harness command JSON"
+): { command: HarnessCommand; env: Record<string, string> } {
   const parsed = JSON.parse(json) as unknown;
   if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new Error("harness command JSON must be an object");
+    throw new Error(`${label} must be an object`);
   }
 
   const record = parsed as Record<string, unknown>;
   if (typeof record.executable !== "string" || record.executable.length === 0) {
-    throw new Error("harness command JSON requires executable");
+    throw new Error(`${label} requires executable`);
   }
 
   const args = record.args === undefined
@@ -1235,10 +1261,10 @@ function parseHarnessCommandJson(json: string): { command: HarnessCommand; env: 
       ? record.args
       : undefined;
   if (!args) {
-    throw new Error("harness command JSON args must be an array of strings");
+    throw new Error(`${label} args must be an array of strings`);
   }
 
-  const env = record.env === undefined ? {} : parseStringRecord(record.env, "env");
+  const env = record.env === undefined ? {} : parseStringRecord(record.env, label, "env");
 
   return {
     command: {
@@ -1284,22 +1310,22 @@ function parseSuiteHarnessCommandJson(
 ): Partial<Record<HookCaptureProvider, HarnessCommand>> {
   const parsed = JSON.parse(json) as unknown;
   if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new Error("suite harness command JSON must be an object");
+    throw new Error("run --harness-command-json must be an object");
   }
 
   const record = parsed as Record<string, unknown>;
   if ("executable" in record) {
     if (harnesses.length !== 1) {
-      throw new Error("single harness command JSON requires exactly one selected harness");
+      throw new Error("run --harness-command-json with a single command requires exactly one selected harness");
     }
 
-    return { [harnesses[0]]: parseHarnessCommandJson(json).command };
+    return { [harnesses[0]]: parseHarnessCommandJson(json, "run --harness-command-json").command };
   }
 
   return Object.fromEntries(
     Object.entries(record).map(([provider, value]) => {
       const harness = parseProvider(provider);
-      return [harness, parseHarnessCommandJson(JSON.stringify(value)).command];
+      return [harness, parseHarnessCommandJson(JSON.stringify(value), `run --harness-command-json ${provider}`).command];
     })
   ) as Partial<Record<HookCaptureProvider, HarnessCommand>>;
 }
@@ -1423,15 +1449,15 @@ process.stdin.on("end", () => {
 `;
 }
 
-function parseStringRecord(value: unknown, label: string): Record<string, string> {
+function parseStringRecord(value: unknown, commandLabel: string, label: string): Record<string, string> {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error(`harness command JSON ${label} must be an object`);
+    throw new Error(`${commandLabel} ${label} must be an object`);
   }
 
   return Object.fromEntries(
     Object.entries(value as Record<string, unknown>).map(([key, entry]) => {
       if (typeof entry !== "string") {
-        throw new Error(`harness command JSON ${label}.${key} must be a string`);
+        throw new Error(`${commandLabel} ${label}.${key} must be a string`);
       }
       return [key, entry];
     })
@@ -1452,16 +1478,6 @@ function parsePositiveInt(value: string): number {
   return parsed;
 }
 
-function parseNonnegativeNumber(value: string): number {
-  const parsed = Number(value);
-
-  if (!Number.isFinite(parsed) || parsed < 0) {
-    throw new Error(`expected a nonnegative number, got: ${value}`);
-  }
-
-  return parsed;
-}
-
 function resolvePath(cwd: string, path: string): string {
   return resolve(cwd, path);
 }
@@ -1471,6 +1487,10 @@ function defaultRunId(): string {
 }
 
 function fail(exitCode: number, message: string): never {
+  if (exitCode === EX_USAGE) {
+    throw new Error(message);
+  }
+
   throw new CliExit(exitCode, message);
 }
 
@@ -1555,6 +1575,22 @@ function formatComparability(value: unknown): string {
 
 function stringField(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function safeProcessDiagnosticMessage(stderr: string | undefined): string | undefined {
+  if (stderr === undefined) {
+    return undefined;
+  }
+
+  const trimmed = stderr.trim();
+  if (
+    /^harness executable not found(?: on PATH)?: [^\n\r]+$/.test(trimmed) ||
+    /^No process command configured for harness: [a-z_]+$/.test(trimmed)
+  ) {
+    return trimmed;
+  }
+
+  return undefined;
 }
 
 function isNotFoundError(error: unknown): boolean {

@@ -6,7 +6,7 @@ import { describe, expect, test } from "vitest";
 import { runCli } from "../../src/adapters/inbound/cli/main.js";
 
 describe("CLI spec catalog and suite execution", () => {
-  test("init, add, doctor, and dry-run suite execution use local catalog files", async () => {
+  test("init, add, check, and dry-run suite execution use local catalog files", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "bmh-cli-spec-suite-"));
     const output = createOutput();
     await mkdir(join(cwd, "docs"), { recursive: true });
@@ -49,7 +49,7 @@ describe("CLI spec catalog and suite execution", () => {
     ).resolves.toBe(0);
 
     await expect(
-      runCli(["node", "bench-my-harness", "doctor"], {
+      runCli(["node", "bench-my-harness", "check"], {
         cwd,
         stdout: output.stdout,
         stderr: output.stderr

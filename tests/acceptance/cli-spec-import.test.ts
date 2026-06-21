@@ -19,7 +19,7 @@ describe("CLI spec import", () => {
       [
         "node",
         "bench-my-harness",
-        "import",
+        "add",
         "docs/specs/15-project-command-generation.md",
         "docs/specs/16-spec-catalog-reporting.md",
         "--base-ref",
@@ -72,7 +72,7 @@ describe("CLI spec import", () => {
       [
         "node",
         "bench-my-harness",
-        "import",
+        "add",
         "docs/specs/15-project-command-generation.md",
         "docs/specs/project-command-generation.md",
         "--base-ref",
@@ -98,7 +98,7 @@ describe("CLI spec import", () => {
       [
         "node",
         "bench-my-harness",
-        "import",
+        "add",
         "docs/specs/15-project-command-generation.md",
         "--base-ref",
         "base123",
@@ -108,7 +108,7 @@ describe("CLI spec import", () => {
       runtime(cwd, output)
     );
     const validateExitCode = await runCli(
-      ["node", "bench-my-harness", "doctor"],
+      ["node", "bench-my-harness", "check"],
       runtime(cwd, output)
     );
 
