@@ -1,5 +1,8 @@
 node_modules/
 dist/
 coverage/
-.bmh/
+!.bmh/
+.bmh/*
+!.bmh/specs/
+!.bmh/specs/**
 *.log

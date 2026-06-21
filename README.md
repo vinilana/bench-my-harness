@@ -341,6 +341,12 @@ For repository-specific benchmark suites, create a catalog under `.bmh/specs`:
 node ./dist/adapters/inbound/cli/main.js specs init
 ```
 
+To ask a coding agent to initialize the catalog for an existing repository, copy the prompt in:
+
+```text
+docs/prompts/initialize-bmh-spec-catalog-prompt.md
+```
+
 This writes:
 
 ```text
