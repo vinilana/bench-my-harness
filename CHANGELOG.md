@@ -6,6 +6,8 @@ This project follows semantic versioning during the v0 phase: minor versions may
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-06-21
+
 ### Changed
 
 - Redesigned the public CLI around workflow-first commands:
@@ -41,6 +43,8 @@ This project follows semantic versioning during the v0 phase: minor versions may
   - `npm test`: 72 test files, 270 tests passing.
   - `npm run typecheck`: passing.
   - `npm run build`: passing.
+- Packaging verification:
+  - `npm pack --dry-run`: package contents verified for `bench-my-harness@0.2.0`.
 
 ## [0.1.0] - 2026-06-21
 
