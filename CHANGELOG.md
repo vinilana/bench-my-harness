@@ -6,6 +6,11 @@ This project follows semantic versioning during the v0 phase: minor versions may
 
 ## [Unreleased]
 
+### Fixed
+
+- Corrected `bmh add --from-git` missing-ref errors so they name `add --from-git` instead of `benchmark init`.
+- Added CLI error-path coverage for required options, conflicting flags, malformed harness command JSON, unsupported YAML benchmarks, empty import globs, report input validation, and hook-capture provider validation.
+
 ## [0.3.0] - 2026-06-21
 
 ### Changed

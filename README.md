@@ -37,6 +37,8 @@ Bench My Harness (BMH) runs the same coding task against different agentic harne
 
 ## Quickstart
 
+### Getting Started
+
 Get to a report in under a minute — no Codex or Claude Code credentials required. The `smoke` command runs a one-trial suite against a built-in fake harness.
 
 ```bash
@@ -130,7 +132,7 @@ See [`docs/adrs/`](./docs/adrs/) for the full design rationale, including [hexag
 
 ### Create or validate a benchmark
 
-BMH v1 accepts JSON benchmark files. Create one interactively:
+BMH uses a JSON-only v1 benchmark format. YAML benchmark files are rejected by validation and run commands; use `.json` fixtures until YAML parsing lands in a later version. Create one interactively:
 
 ```bash
 bmh benchmark init --output benchmarks/login-validation.benchmark.json
@@ -322,7 +324,7 @@ To create multiple cases from a commit range (at most 25 by default; override wi
 bmh add --from-git --repo-path . --range main~25..main
 ```
 
-Generated cases are not added to `suite.json` unless `--include-in-suite` is provided.
+For a single generated Git case, `--base-ref` and `--golden-ref` are required. `bmh add --from-git` is non-interactive in this mode: it does not prompt for missing refs, and it fails fast with an `add --from-git requires ...` message. Generated cases are not added to `suite.json` unless `--include-in-suite` is provided.
 
 ### Validate and run a spec suite
 
@@ -384,12 +386,12 @@ bmh report --run-id local_suite_001 --store-root .bmh/runs --format html
 ## Command Reference
 
 ```bash
-bmh internal hook-capture --provider codex --event PreToolUse
+bmh internal hook-capture --provider codex --event PreToolUse --run-id <run-id> --trial-id <trial-id> --spool <path>
 bmh init
 bmh init --repo-path . --setup-command "npm install" --test-command "npm test" --harness codex --harness claude_code --include-in-suite
 bmh add docs/specs/example.md --base-ref <base> --golden-ref <golden>
 bmh import "docs/specs/*.md" --base-ref <base> --golden-ref <golden>
-bmh add --from-git --base-ref <base> --golden-ref <golden>
+bmh add --from-git --repo-path . --base-ref <base> --golden-ref <golden>
 bmh add --from-git --repo-path . --range main~25..main
 bmh doctor
 bmh run --dry-run --run-id local_suite_001 --harness codex --harness claude_code
@@ -434,6 +436,8 @@ Design decisions are recorded as ADRs in [`docs/adrs/`](./docs/adrs/).
 
 ## Roadmap
 
+### Roadmap Scope
+
 The v1 foundation targets a local, reproducible benchmark workflow for Codex and Claude Code.
 
 **Implemented in v1:**
@@ -462,6 +466,10 @@ The v1 foundation targets a local, reproducible benchmark workflow for Codex and
 - Manual interactive benchmark mode (exploratory evidence, not a comparable result).
 - Project command generation for Python, Rust, Go, .NET, and Java/Kotlin repositories.
 - UI/dashboard, CSV export, and CI gates.
+
+### Real Harness Smoke Tests
+
+Real Codex and Claude Code smoke tests are local-only, opt-in checks for machines with the required binaries, credentials, and disposable workspaces. They must not run as part of `npm test`; the automated suite uses fake and process-controlled harnesses instead.
 
 ## Contributing
 

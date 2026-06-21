@@ -173,8 +173,8 @@ export function buildProgram(context: CliContext): Command {
       const result = await runHookCapture({
         provider,
         event: options.event,
-        runId: options.runId ?? context.env.BMH_RUN_ID ?? "",
-        trialId: options.trialId ?? context.env.BMH_TRIAL_ID ?? "",
+        runId: requiredOption(options.runId ?? context.env.BMH_RUN_ID, "internal hook-capture", "--run-id"),
+        trialId: requiredOption(options.trialId ?? context.env.BMH_TRIAL_ID, "internal hook-capture", "--trial-id"),
         stdin: context.stdin,
         spoolPath: resolvePath(context.cwd, options.spool),
         ingestUrl: options.ingestUrl,
@@ -271,7 +271,7 @@ export function buildProgram(context: CliContext): Command {
       const { benchmark, directory } = await readBenchmarkFile(options.benchmark, context.cwd);
 
       const configuredCommand = options.harnessCommandJson
-        ? parseHarnessCommandJson(options.harnessCommandJson)
+        ? parseHarnessCommandJson(options.harnessCommandJson, "benchmark run --harness-command-json")
         : undefined;
 
       if (!options.dryRun && !configuredCommand) {
@@ -320,6 +320,10 @@ export function buildProgram(context: CliContext): Command {
       );
 
       if (result.status !== "completed") {
+        const safeDiagnostic = safeProcessDiagnosticMessage(result.process_diagnostics?.stderr);
+        if (safeDiagnostic !== undefined) {
+          context.stderr(`${safeDiagnostic}\n`);
+        }
         throw new CliExit(EX_USAGE, result.failure_classification ?? "benchmark failed");
       }
     });
@@ -426,7 +430,7 @@ export function buildProgram(context: CliContext): Command {
       if (promptFile === undefined && options.fromGit !== true && hasNoManualSpecFields(options)) {
         const command = normalizeInteractiveCommand(await collectInteractiveBenchmarkCommand(context), context.cwd);
         if (command.repoUrl === undefined) {
-          throw new Error("add interactive mode requires a repo source; use benchmark init for fixture benchmarks");
+          throw new Error("add interactive mode requires a repo source");
         }
 
         const draft = await new CreateFeatureSpecUseCase(new FilesystemSpecCatalogStore()).execute({
@@ -488,8 +492,8 @@ export function buildProgram(context: CliContext): Command {
           id: options.id,
           name: options.name,
           category: category ?? "feature",
-          baseRef: requiredOption(options.baseRef, "--base-ref"),
-          goldenRef: requiredOption(options.goldenRef, "--golden-ref"),
+          baseRef: requiredOption(options.baseRef, "add --from-git", "--base-ref"),
+          goldenRef: requiredOption(options.goldenRef, "add --from-git", "--golden-ref"),
           setupCommands,
           testCommands,
           includeInSuite: options.includeInSuite ?? false,
@@ -637,12 +641,12 @@ export function buildProgram(context: CliContext): Command {
       const resolvedHarnesses = harnesses ?? loaded.catalog.defaults?.harnesses ?? ["codex", "claude_code"];
 
       if (options.dryRun === true && options.real === true) {
-        context.stderr("spec suite cannot use --real and --dry-run together\n");
+        context.stderr("run cannot use --real and --dry-run together\n");
         throw new CliExit(EX_USAGE, "spec suite real and dry-run modes are mutually exclusive");
       }
 
       if (options.dryRun !== true && options.real !== true) {
-        context.stderr("spec suite real harness execution is not configured for this CLI build; rerun with --dry-run\n");
+        context.stderr("run requires --dry-run or --real; real harness execution is not configured by default\n");
         throw new CliExit(EX_CONFIG, "spec suite real harness execution is not configured");
       }
 
@@ -1016,9 +1020,9 @@ function collectOptionValue(value: string, previous: readonly string[] | undefin
   return [...(previous ?? []), value];
 }
 
-function requiredOption(value: string | undefined, option: string): string {
+function requiredOption(value: string | undefined, command: string, option: string): string {
   if (value === undefined || value.trim().length === 0) {
-    throw new Error(`benchmark init requires ${option}`);
+    throw new Error(`${command} requires ${option}`);
   }
 
   return value;
@@ -1055,7 +1059,7 @@ async function expandPromptFiles(cwd: string, promptFiles: readonly string[]): P
 
     const matches = await expandGlobPattern(cwd, promptFile);
     if (matches.length === 0) {
-      throw new Error(`prompt file pattern matched no files: ${promptFile}`);
+      throw new Error(`import prompt file pattern matched no files: ${promptFile}`);
     }
 
     expanded.push(...matches);
@@ -1218,15 +1222,18 @@ function parseCategory(category: string): BenchmarkCategory {
   fail(EX_USAGE, `unsupported category: ${category}`);
 }
 
-function parseHarnessCommandJson(json: string): { command: HarnessCommand; env: Record<string, string> } {
+function parseHarnessCommandJson(
+  json: string,
+  label = "harness command JSON"
+): { command: HarnessCommand; env: Record<string, string> } {
   const parsed = JSON.parse(json) as unknown;
   if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new Error("harness command JSON must be an object");
+    throw new Error(`${label} must be an object`);
   }
 
   const record = parsed as Record<string, unknown>;
   if (typeof record.executable !== "string" || record.executable.length === 0) {
-    throw new Error("harness command JSON requires executable");
+    throw new Error(`${label} requires executable`);
   }
 
   const args = record.args === undefined
@@ -1235,10 +1242,10 @@ function parseHarnessCommandJson(json: string): { command: HarnessCommand; env: 
       ? record.args
       : undefined;
   if (!args) {
-    throw new Error("harness command JSON args must be an array of strings");
+    throw new Error(`${label} args must be an array of strings`);
   }
 
-  const env = record.env === undefined ? {} : parseStringRecord(record.env, "env");
+  const env = record.env === undefined ? {} : parseStringRecord(record.env, label, "env");
 
   return {
     command: {
@@ -1284,22 +1291,22 @@ function parseSuiteHarnessCommandJson(
 ): Partial<Record<HookCaptureProvider, HarnessCommand>> {
   const parsed = JSON.parse(json) as unknown;
   if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new Error("suite harness command JSON must be an object");
+    throw new Error("run --harness-command-json must be an object");
   }
 
   const record = parsed as Record<string, unknown>;
   if ("executable" in record) {
     if (harnesses.length !== 1) {
-      throw new Error("single harness command JSON requires exactly one selected harness");
+      throw new Error("run --harness-command-json with a single command requires exactly one selected harness");
     }
 
-    return { [harnesses[0]]: parseHarnessCommandJson(json).command };
+    return { [harnesses[0]]: parseHarnessCommandJson(json, "run --harness-command-json").command };
   }
 
   return Object.fromEntries(
     Object.entries(record).map(([provider, value]) => {
       const harness = parseProvider(provider);
-      return [harness, parseHarnessCommandJson(JSON.stringify(value)).command];
+      return [harness, parseHarnessCommandJson(JSON.stringify(value), `run --harness-command-json ${provider}`).command];
     })
   ) as Partial<Record<HookCaptureProvider, HarnessCommand>>;
 }
@@ -1423,15 +1430,15 @@ process.stdin.on("end", () => {
 `;
 }
 
-function parseStringRecord(value: unknown, label: string): Record<string, string> {
+function parseStringRecord(value: unknown, commandLabel: string, label: string): Record<string, string> {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error(`harness command JSON ${label} must be an object`);
+    throw new Error(`${commandLabel} ${label} must be an object`);
   }
 
   return Object.fromEntries(
     Object.entries(value as Record<string, unknown>).map(([key, entry]) => {
       if (typeof entry !== "string") {
-        throw new Error(`harness command JSON ${label}.${key} must be a string`);
+        throw new Error(`${commandLabel} ${label}.${key} must be a string`);
       }
       return [key, entry];
     })
@@ -1471,6 +1478,10 @@ function defaultRunId(): string {
 }
 
 function fail(exitCode: number, message: string): never {
+  if (exitCode === EX_USAGE) {
+    throw new Error(message);
+  }
+
   throw new CliExit(exitCode, message);
 }
 
@@ -1555,6 +1566,22 @@ function formatComparability(value: unknown): string {
 
 function stringField(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function safeProcessDiagnosticMessage(stderr: string | undefined): string | undefined {
+  if (stderr === undefined) {
+    return undefined;
+  }
+
+  const trimmed = stderr.trim();
+  if (
+    /^harness executable not found(?: on PATH)?: [^\n\r]+$/.test(trimmed) ||
+    /^No process command configured for harness: [a-z_]+$/.test(trimmed)
+  ) {
+    return trimmed;
+  }
+
+  return undefined;
 }
 
 function isNotFoundError(error: unknown): boolean {
