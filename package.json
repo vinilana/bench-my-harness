@@ -3,11 +3,13 @@
   "version": "0.3.0",
   "author": "Vinicius Lana <vini@aicoders.academy>",
   "description": "Benchmark and observability harness for comparing agentic coding tools.",
+  "license": "MIT",
   "type": "module",
   "files": [
     "dist",
     "README.md",
-    "CHANGELOG.md"
+    "CHANGELOG.md",
+    "LICENSE"
   ],
   "bin": {
     "bmh": "dist/adapters/inbound/cli/main.js"
