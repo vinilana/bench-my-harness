@@ -20,8 +20,7 @@ describe("CLI benchmark init command detection", () => {
       [
         "node",
         "bench-my-harness",
-        "init",
-        "benchmark",
+        "benchmark", "init",
         "--template",
         "--id",
         "detected-001",
@@ -57,8 +56,7 @@ describe("CLI benchmark init command detection", () => {
       [
         "node",
         "bench-my-harness",
-        "init",
-        "benchmark",
+        "benchmark", "init",
         "--template",
         "--id",
         "bad-detect-001",
@@ -89,8 +87,7 @@ describe("CLI benchmark init command detection", () => {
       [
         "node",
         "bench-my-harness",
-        "init",
-        "benchmark",
+        "benchmark", "init",
         "--template",
         "--id",
         "bad-commands-001",
@@ -115,7 +112,7 @@ describe("CLI benchmark init command detection", () => {
     expect(output.stderr()).toMatch(/manual setup or test commands/i);
   });
 
-  test("generated benchmark passes validate benchmark", async () => {
+  test("generated benchmark passes benchmark validate", async () => {
     const root = await createNodeProject({ scripts: { test: "vitest run" } });
     const outputPath = join(root, "valid.benchmark.json");
 
@@ -123,8 +120,7 @@ describe("CLI benchmark init command detection", () => {
       [
         "node",
         "bench-my-harness",
-        "init",
-        "benchmark",
+        "benchmark", "init",
         "--template",
         "--id",
         "valid-detected-001",
@@ -144,7 +140,7 @@ describe("CLI benchmark init command detection", () => {
     );
 
     const validateOutput = createOutput();
-    const exitCode = await runCli(["node", "bench-my-harness", "validate", "benchmark", outputPath], {
+    const exitCode = await runCli(["node", "bench-my-harness", "benchmark", "validate", outputPath], {
       cwd: root,
       stdout: validateOutput.stdout,
       stderr: validateOutput.stderr

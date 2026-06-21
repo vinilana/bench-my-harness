@@ -137,7 +137,16 @@ export function buildProgram(context: CliContext): Command {
       writeErr: context.stderr
     });
 
-  program
+  const internal = new Command("internal")
+    .description("Internal commands used by generated harness instrumentation.")
+    .exitOverride()
+    .configureOutput({
+      writeOut: context.stdout,
+      writeErr: context.stderr
+    });
+  program.addCommand(internal, { hidden: true });
+
+  internal
     .command("hook-capture")
     .description("Capture one harness hook event from stdin.")
     .requiredOption("--provider <provider>", "hook provider: codex or claude_code")
@@ -181,10 +190,10 @@ export function buildProgram(context: CliContext): Command {
       }
     });
 
-  const init = program.command("init").description("Create Bench My Harness project files.");
+  const benchmark = program.command("benchmark").description("Advanced standalone benchmark JSON commands.");
 
-  init
-    .command("benchmark")
+  benchmark
+    .command("init")
     .description("Create a benchmark JSON file.")
     .requiredOption("--output <path>", "output benchmark JSON path")
     .option("--template", "write a benchmark template from flags", false)
@@ -225,10 +234,8 @@ export function buildProgram(context: CliContext): Command {
       context.stdout(`benchmark template written: ${outputPath}\n`);
     });
 
-  const validate = program.command("validate").description("Validate Bench My Harness inputs.");
-
-  validate
-    .command("benchmark")
+  benchmark
+    .command("validate")
     .description("Validate a benchmark JSON fixture.")
     .argument("<path>", "benchmark JSON file")
     .action(async (path: string) => {
@@ -242,7 +249,7 @@ export function buildProgram(context: CliContext): Command {
       }
     });
 
-  program
+  benchmark
     .command("run")
     .description("Run one benchmark trial.")
     .requiredOption("--benchmark <path>", "benchmark JSON file")
@@ -312,31 +319,12 @@ export function buildProgram(context: CliContext): Command {
       }
     });
 
-  const specs = program.command("specs").description("Manage and run spec catalog benchmarks.");
-
-  specs
+  program
     .command("init")
-    .description("Create .bmh/specs/suite.json.")
+    .description("Create .bmh/specs/suite.json and configure authoring defaults.")
     .option("--catalog-root <path>", "spec catalog root", ".bmh/specs")
     .option("--id <id>", "suite id")
     .option("--name <name>", "suite name")
-    .option("--force", "overwrite suite.json", false)
-    .action(async (options: SpecsInitOptions) => {
-      const catalogRoot = resolvePath(context.cwd, options.catalogRoot ?? ".bmh/specs");
-      const catalog = await new CreateSpecCatalogUseCase(new FilesystemSpecCatalogStore()).execute({
-        catalogRoot,
-        id: options.id,
-        name: options.name,
-        force: options.force ?? false
-      });
-
-      context.stdout(`spec catalog initialized: ${resolvePath(catalogRoot, "suite.json")}\n`);
-    });
-
-  specs
-    .command("configure")
-    .description("Configure spec catalog authoring defaults.")
-    .option("--catalog-root <path>", "spec catalog root", ".bmh/specs")
     .option("--repo-path <path>", "default local repository path")
     .option("--category <category>", "default spec category")
     .option("--setup-command <command>", "default setup command", collectOptionValue)
@@ -348,30 +336,53 @@ export function buildProgram(context: CliContext): Command {
     .option("--no-strict-telemetry", "disable strict telemetry by default")
     .option("--include-in-suite", "add generated specs to suite by default")
     .option("--no-include-in-suite", "do not add generated specs to suite by default")
-    .action(async (options: SpecsConfigureOptions) => {
+    .option("--force", "overwrite suite.json when creating a catalog", false)
+    .action(async (options: SpecsInitOptions & SpecsConfigureOptions) => {
       const catalogRoot = resolvePath(context.cwd, options.catalogRoot ?? ".bmh/specs");
+      const store = new FilesystemSpecCatalogStore();
       const configureHarnessOptions = options.harness ?? [];
       const harnesses = hasEntries(configureHarnessOptions) ? configureHarnessOptions.map(parseProvider) : undefined;
-      const catalog = await new ConfigureSpecCatalogUseCase(new FilesystemSpecCatalogStore()).execute({
-        catalogRoot,
-        defaults: {
-          repo_path: options.repoPath,
-          category: options.category,
-          setup_commands: hasEntries(options.setupCommand) ? [...(options.setupCommand ?? [])] : undefined,
-          test_commands: hasEntries(options.testCommand) ? [...(options.testCommand ?? [])] : undefined,
-          harnesses,
-          trials: options.trials,
-          workspace_root: options.workspaceRoot,
-          strict_telemetry: options.strictTelemetry,
-          include_in_suite: options.includeInSuite
-        }
-      });
+      const defaults: SpecCatalogDefaults = {
+        repo_path: options.repoPath,
+        category: options.category,
+        setup_commands: hasEntries(options.setupCommand) ? [...(options.setupCommand ?? [])] : undefined,
+        test_commands: hasEntries(options.testCommand) ? [...(options.testCommand ?? [])] : undefined,
+        harnesses,
+        trials: options.trials,
+        workspace_root: options.workspaceRoot,
+        strict_telemetry: options.strictTelemetry,
+        include_in_suite: options.includeInSuite
+      };
 
-      context.stdout(`spec catalog defaults configured: ${catalog.id}@${catalog.version}\n`);
+      const hasDefaults = Object.values(defaults).some((value) => value !== undefined);
+      let catalog;
+      try {
+        catalog = await new CreateSpecCatalogUseCase(store).execute({
+          catalogRoot,
+          id: options.id,
+          name: options.name,
+          force: options.force ?? false
+        });
+      } catch (error) {
+        if (!hasDefaults || !isAlreadyExistsError(error)) {
+          throw error;
+        }
+
+        catalog = (await new LoadSpecCatalogUseCase(store).execute({ catalogRoot })).catalog;
+      }
+
+      if (hasDefaults) {
+        catalog = await new ConfigureSpecCatalogUseCase(store).execute({
+          catalogRoot,
+          defaults
+        });
+      }
+
+      context.stdout(`spec catalog initialized: ${resolvePath(catalogRoot, "suite.json")} (${catalog.id}@${catalog.version})\n`);
     });
 
-  specs
-    .command("create")
+  program
+    .command("add")
     .description("Create a feature spec in .bmh/specs.")
     .argument("[promptFile]", "Markdown prompt/spec file to copy into the catalog")
     .option("--catalog-root <path>", "spec catalog root", ".bmh/specs")
@@ -384,6 +395,8 @@ export function buildProgram(context: CliContext): Command {
     .option("--golden-ref <ref>", "golden git ref")
     .option("--prompt-file <path>", "Markdown prompt/spec file to copy into the catalog")
     .option("--from-git", "create a backward spec draft from git evidence", false)
+    .option("--range <range>", "git revision range for multiple backward drafts")
+    .option("--limit <count>", "maximum backward drafts to create", parsePositiveInt)
     .option("--setup-command <command>", "setup command", collectOptionValue, [])
     .option("--test-command <command>", "validation command", collectOptionValue, [])
     .option("--tag <tag>", "spec tag", collectOptionValue, [])
@@ -392,7 +405,7 @@ export function buildProgram(context: CliContext): Command {
     .action(async (promptFileArg: string | undefined, options: SpecsCreateOptions) => {
       const catalogRoot = resolvePath(context.cwd, options.catalogRoot ?? ".bmh/specs");
       if (promptFileArg !== undefined && options.promptFile !== undefined) {
-        throw new Error("specs create accepts either <promptFile> or --prompt-file, not both");
+        throw new Error("add accepts either <promptFile> or --prompt-file, not both");
       }
 
       const promptFile = promptFileArg ?? options.promptFile;
@@ -404,6 +417,25 @@ export function buildProgram(context: CliContext): Command {
       const testCommands = hasEntries(options.testCommand) ? options.testCommand : defaults?.test_commands ?? [];
       const includeInSuite = options.includeInSuite ?? defaults?.include_in_suite ?? false;
       const category = options.category ?? defaults?.category;
+
+      if (options.fromGit === true && options.range !== undefined) {
+        const drafts = await new CreateBackwardSpecDraftUseCase({
+          store: new FilesystemSpecCatalogStore(),
+          gitHistory: new ProcessGitHistoryInspector()
+        }).backfill({
+          catalogRoot,
+          repoPath,
+          repoUrl,
+          range: options.range,
+          limit: options.limit,
+          category: category ?? "feature",
+          includeInSuite: options.includeInSuite ?? false,
+          force: options.force ?? false
+        });
+
+        context.stdout(`backward git drafts created: ${drafts.length}\n`);
+        return;
+      }
 
       if (options.fromGit === true) {
         const draft = await new CreateBackwardSpecDraftUseCase({
@@ -484,36 +516,7 @@ export function buildProgram(context: CliContext): Command {
       context.stdout(`spec created: ${resolvePath(catalogRoot, draft.benchmarkPath)}\n`);
     });
 
-  specs
-    .command("backfill")
-    .description("Create backward spec drafts from local git history.")
-    .option("--catalog-root <path>", "spec catalog root", ".bmh/specs")
-    .option("--repo-path <path>", "local repository path", ".")
-    .requiredOption("--range <range>", "git revision range")
-    .option("--limit <count>", "maximum draft specs to create", parsePositiveInt)
-    .option("--category <category>", "generated spec category", "feature")
-    .option("--include-in-suite", "add generated specs to suite.json", false)
-    .option("--force", "overwrite generated spec files", false)
-    .action(async (options: SpecsBackfillOptions) => {
-      const repoPath = resolvePath(context.cwd, options.repoPath ?? ".");
-      const drafts = await new CreateBackwardSpecDraftUseCase({
-        store: new FilesystemSpecCatalogStore(),
-        gitHistory: new ProcessGitHistoryInspector()
-      }).backfill({
-        catalogRoot: resolvePath(context.cwd, options.catalogRoot ?? ".bmh/specs"),
-        repoPath,
-        repoUrl: repoPathToFileUrl(context.cwd, options.repoPath ?? "."),
-        range: options.range,
-        limit: options.limit,
-        category: options.category,
-        includeInSuite: options.includeInSuite ?? false,
-        force: options.force ?? false
-      });
-
-      context.stdout(`backfill drafts created: ${drafts.length}\n`);
-    });
-
-  specs
+  program
     .command("import")
     .description("Create feature specs from Markdown prompt files.")
     .argument("<promptFiles...>", "Markdown prompt/spec files or simple glob patterns")
@@ -545,23 +548,30 @@ export function buildProgram(context: CliContext): Command {
       context.stdout(`specs imported: ${drafts.length}\n`);
     });
 
-  specs
-    .command("validate")
-    .description("Validate a spec catalog.")
+  program
+    .command("doctor")
+    .description("Check spec catalog and local harness readiness.")
     .option("--catalog-root <path>", "spec catalog root", ".bmh/specs")
     .action(async (options: SpecsCatalogOptions) => {
       try {
         const loaded = await new LoadSpecCatalogUseCase(new FilesystemSpecCatalogStore()).execute({
           catalogRoot: resolvePath(context.cwd, options.catalogRoot ?? ".bmh/specs")
         });
-        context.stdout(`spec catalog valid: ${loaded.catalog.id}@${loaded.catalog.version} (${loaded.specs.length} specs)\n`);
+        context.stdout(`spec catalog: valid ${loaded.catalog.id}@${loaded.catalog.version} (${loaded.specs.length} specs)\n`);
+        const harnesses = loaded.catalog.defaults?.harnesses ?? ["codex", "claude_code"];
+        context.stdout(`default harnesses: ${harnesses.join(", ")}\n`);
+        for (const harness of harnesses) {
+          const command = defaultHarnessCommand(harness);
+          const status = await executableStatus(command.executable, context.env);
+          context.stdout(`${harness}: ${status}\n`);
+        }
       } catch (error) {
-        context.stderr(`spec catalog invalid: ${formatError(error)}\n`);
-        throw new CliExit(EX_USAGE, "spec catalog invalid");
+        context.stderr(`doctor failed: ${formatError(error)}\n`);
+        throw new CliExit(EX_USAGE, "doctor failed");
       }
     });
 
-  specs
+  program
     .command("run")
     .description("Run a spec catalog suite.")
     .option("--catalog-root <path>", "spec catalog root", ".bmh/specs")
@@ -640,7 +650,7 @@ export function buildProgram(context: CliContext): Command {
       context.stdout(`spec suite run complete: ${report.run_id} (${report.trial_count} trials)\n`);
     });
 
-  specs
+  program
     .command("smoke")
     .description("Run a dry one-trial spec suite smoke test.")
     .option("--catalog-root <path>", "spec catalog root", ".bmh/specs")
@@ -786,18 +796,11 @@ interface SpecsCreateOptions extends SpecsCatalogOptions {
   readonly goldenRef?: string;
   readonly promptFile?: string;
   readonly fromGit?: boolean;
+  readonly range?: string;
+  readonly limit?: number;
   readonly setupCommand?: readonly string[];
   readonly testCommand?: readonly string[];
   readonly tag?: readonly string[];
-  readonly includeInSuite?: boolean;
-  readonly force?: boolean;
-}
-
-interface SpecsBackfillOptions extends SpecsCatalogOptions {
-  readonly repoPath?: string;
-  readonly range: string;
-  readonly limit?: number;
-  readonly category?: string;
   readonly includeInSuite?: boolean;
   readonly force?: boolean;
 }
@@ -858,7 +861,7 @@ async function commandFromTemplateOptions(options: InitBenchmarkOptions, cwd: st
     Number(options.repoUrl !== undefined) + Number(options.repoPath !== undefined) + Number(options.fixturePath !== undefined);
 
   if (sourceCount > 1) {
-    throw new Error("init benchmark requires only one of --repo-url, --repo-path, or --fixture-path");
+    throw new Error("benchmark init requires only one of --repo-url, --repo-path, or --fixture-path");
   }
 
   const generatedCommands = await generatedCommandsFromTemplateOptions(options, cwd);
@@ -915,11 +918,11 @@ async function generatedCommandsFromTemplateOptions(
   }
 
   if (options.repoPath === undefined || options.repoUrl !== undefined || options.fixturePath !== undefined) {
-    throw new Error("init benchmark --detect-commands requires --repo-path and does not support --repo-url or --fixture-path");
+    throw new Error("benchmark init --detect-commands requires --repo-path and does not support --repo-url or --fixture-path");
   }
 
   if (hasEntries(options.setupCommand) || hasEntries(options.testCommand)) {
-    throw new Error("init benchmark --detect-commands cannot be used with manual setup or test commands");
+    throw new Error("benchmark init --detect-commands cannot be used with manual setup or test commands");
   }
 
   return generateProjectCommands(cwd, options.repoPath);
@@ -950,7 +953,7 @@ function collectOptionValue(value: string, previous: readonly string[] | undefin
 
 function requiredOption(value: string | undefined, option: string): string {
   if (value === undefined || value.trim().length === 0) {
-    throw new Error(`init benchmark requires ${option}`);
+    throw new Error(`benchmark init requires ${option}`);
   }
 
   return value;
@@ -1250,7 +1253,7 @@ async function ensureLocalHookCommandShim(cwd: string): Promise<string> {
   const script = [
     "#!/usr/bin/env bash",
     "set -euo pipefail",
-    "if [ \"${1:-}\" = \"hook-capture\" ]; then",
+    "if [ \"${1:-}\" = \"internal\" ] && [ \"${2:-}\" = \"hook-capture\" ]; then",
     `  exec node -e ${shellQuote(hookCaptureShimJavaScript())} "$@"`,
     "fi",
     `exec node ${shellQuote(cliPath)} "$@"`,
@@ -1285,6 +1288,19 @@ async function assertExecutableAvailable(harness: HookCaptureProvider, executabl
   }
 
   throw new Error(`${harness} environment_failed: harness executable not found on PATH: ${executable}`);
+}
+
+async function executableStatus(executable: string, env: NodeJS.ProcessEnv): Promise<"found" | "missing"> {
+  try {
+    await assertExecutableAvailable("codex", executable, env);
+    return "found";
+  } catch {
+    return "missing";
+  }
+}
+
+function isAlreadyExistsError(error: unknown): boolean {
+  return error instanceof Error && "code" in error && error.code === "EEXIST";
 }
 
 function prependPath(entry: string, path: string): string {

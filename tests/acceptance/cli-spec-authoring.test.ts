@@ -11,11 +11,11 @@ import { BenchmarkSchema, SpecCatalogSchema } from "../../src/domain/benchmark/b
 const execFileAsync = promisify(execFile);
 
 describe("CLI spec authoring", () => {
-  test("specs init creates an editable local suite catalog", async () => {
+  test("init creates an editable local suite catalog", async () => {
     const dir = await mkdtemp(join(tmpdir(), "bmh-specs-init-"));
     const output = createOutput();
 
-    const exitCode = await runCli(["node", "bench-my-harness", "specs", "init"], {
+    const exitCode = await runCli(["node", "bench-my-harness", "init"], {
       ...createRuntime(output),
       cwd: dir
     });
@@ -32,21 +32,20 @@ describe("CLI spec authoring", () => {
     expect(output.stdout()).toContain("spec catalog");
   });
 
-  test("specs create writes a feature benchmark, prompt, and suite reference from flags", async () => {
+  test("add writes a feature benchmark, prompt, and suite reference from flags", async () => {
     const dir = await mkdtemp(join(tmpdir(), "bmh-specs-create-"));
     const catalogRoot = join(dir, ".bmh/specs");
     const repo = await createFeatureRepo(dir);
     const promptFile = join(dir, "login-validation.md");
     await writeFile(promptFile, "# Login validation\n\nReject invalid email addresses.\n", "utf8");
     const output = createOutput();
-    await runCli(["node", "bench-my-harness", "specs", "init", "--catalog-root", catalogRoot], createRuntime(output));
+    await runCli(["node", "bench-my-harness", "init", "--catalog-root", catalogRoot], createRuntime(output));
 
     const exitCode = await runCli(
       [
         "node",
         "bench-my-harness",
-        "specs",
-        "create",
+        "add",
         "--catalog-root",
         catalogRoot,
         "--id",
@@ -106,7 +105,7 @@ describe("CLI spec authoring", () => {
     expect(output.stdout()).toMatch(/spec (created|written): .*login-validation|spec written: login-validation/s);
   });
 
-  test("specs create --from-git writes deterministic backward draft evidence", async () => {
+  test("add --from-git writes deterministic backward draft evidence", async () => {
     const dir = await mkdtemp(join(tmpdir(), "bmh-specs-from-git-"));
     const catalogRoot = join(dir, ".bmh/specs");
     const repo = await createFeatureRepo(dir);
@@ -118,8 +117,7 @@ describe("CLI spec authoring", () => {
       [
         "node",
         "bench-my-harness",
-        "specs",
-        "create",
+        "add",
         "--from-git",
         "--catalog-root",
         catalogRoot,
@@ -171,19 +169,18 @@ describe("CLI spec authoring", () => {
     expect(output.stdout()).toMatch(/backward .*draft .*login-validation|backward .*draft .*benchmark\.json/s);
   });
 
-  test("specs backfill defaults to 25 drafts when no limit is provided", async () => {
+  test("add --from-git --range defaults to 25 drafts when no limit is provided", async () => {
     const dir = await mkdtemp(join(tmpdir(), "bmh-specs-backfill-"));
     const catalogRoot = join(dir, ".bmh/specs");
     const repo = await createBackfillRepo(dir, 27);
     const output = createOutput();
-    await runCli(["node", "bench-my-harness", "specs", "init", "--catalog-root", catalogRoot], createRuntime(output));
+    await runCli(["node", "bench-my-harness", "init", "--catalog-root", catalogRoot], createRuntime(output));
 
     const exitCode = await runCli(
       [
         "node",
         "bench-my-harness",
-        "specs",
-        "backfill",
+        "add", "--from-git",
         "--catalog-root",
         catalogRoot,
         "--repo-path",
@@ -205,7 +202,7 @@ describe("CLI spec authoring", () => {
     expect(output.stdout()).toContain("25");
   });
 
-  test("specs backfill rejects non-positive limits", async () => {
+  test("add --from-git --range rejects non-positive limits", async () => {
     const dir = await mkdtemp(join(tmpdir(), "bmh-specs-backfill-limit-"));
     const repo = await createBackfillRepo(dir, 1);
     const output = createOutput();
@@ -214,8 +211,7 @@ describe("CLI spec authoring", () => {
       [
         "node",
         "bench-my-harness",
-        "specs",
-        "backfill",
+        "add", "--from-git",
         "--repo-path",
         repo.path,
         "--range",

@@ -257,7 +257,7 @@ export function validateBackfillLimit(limit: number | undefined): number {
   }
 
   if (!Number.isInteger(limit) || limit <= 0) {
-    throw new Error("specs backfill --limit must be a positive integer");
+    throw new Error("add --from-git --range --limit must be a positive integer");
   }
 
   return limit;

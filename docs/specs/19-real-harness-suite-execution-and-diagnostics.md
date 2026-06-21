@@ -7,7 +7,7 @@ The first attempt to run the local spec catalog with a real Codex harness expose
 The suite command failed:
 
 ```bash
-bench-my-harness specs run \
+bench-my-harness run \
   --catalog-root .bmh/specs \
   --harness codex \
   --trials 1 \
@@ -33,7 +33,7 @@ Additional findings:
 
 - the first manual Codex command failed because `codex exec` does not accept `--ask-for-approval`;
 - hook commands require `bench-my-harness` to be on `PATH`, so local development needed a temporary shim in `.bmh/bin`;
-- `specs run` has no real harness runner wiring even though individual `run` can use `ProcessHarnessRunner`;
+- `run` has no real harness runner wiring even though individual `run` can use `ProcessHarnessRunner`;
 - the CLI does not stream or summarize harness stdout/stderr while a real run is active;
 - failures from the process harness are collapsed into `agent_failed` without enough visible diagnostics;
 - the successful real trial captured 138 Codex hook events, proving that real hook capture works once the process command and PATH are correct.
@@ -47,7 +47,7 @@ Add first-class real harness command profiles for suite execution and improve di
 BMH must allow:
 
 ```bash
-bench-my-harness specs run --harness codex --trials 1
+bench-my-harness run --real --harness codex --trials 1
 ```
 
 to run real Codex trials when Codex is installed and the user has explicitly opted into real execution.
@@ -60,7 +60,7 @@ In scope:
 
 - Codex process profile for `codex exec`;
 - Claude Code process profile placeholder/contract for v1 parity;
-- real suite execution through `specs run`;
+- real suite execution through `run`;
 - explicit opt-in safeguards;
 - local development resolution of the `bench-my-harness` hook command;
 - per-trial process diagnostics;
@@ -79,10 +79,10 @@ Out of scope:
 
 ### Real Suite Execution
 
-`specs run` must support real harness execution:
+`run` must support real harness execution:
 
 ```bash
-bench-my-harness specs run \
+bench-my-harness run \
   --catalog-root .bmh/specs \
   --harness codex \
   --trials 1 \
@@ -113,7 +113,7 @@ The Codex profile must not include `--ask-for-approval`, because `codex exec` do
 Users may override profiles:
 
 ```bash
-bench-my-harness specs run \
+bench-my-harness run \
   --real \
   --harness codex \
   --harness-command-json '{"codex":{"executable":"codex","args":["exec","-"]}}'
@@ -126,7 +126,7 @@ Exact override shape may be refined during implementation, but it must support p
 Generated hooks currently call:
 
 ```bash
-bench-my-harness hook-capture ...
+bench-my-harness internal hook-capture ...
 ```
 
 Real runs must ensure that command resolves inside the harness process.
@@ -241,8 +241,8 @@ Add tests before implementation.
 
 ### `tests/acceptance/cli-spec-real-run.test.ts`
 
-- `specs run --real --harness codex` wires a process harness runner for suite execution;
-- `specs run --real --dry-run` is rejected;
+- `run --real --harness codex` wires a process harness runner for suite execution;
+- `run --real --dry-run` is rejected;
 - missing executable fails before trial execution with a clear error;
 - `--harness-command-json` can override the built-in command profile in suite mode;
 - real suite mode uses fake local process fixtures, not real Codex or Claude binaries.
@@ -257,7 +257,7 @@ Add tests before implementation.
 
 ### `tests/acceptance/hook-command-resolution.test.ts`
 
-- real runs make `bench-my-harness hook-capture` resolvable without global installation;
+- real runs make `bench-my-harness internal hook-capture` resolvable without global installation;
 - hook command path strategy is recorded in trial diagnostics;
 - generated hook commands still write only inside the trial workspace;
 - local shim directories are created under `.bmh` or the run workspace and are not committed by default.
@@ -310,7 +310,7 @@ Process diagnostics are operational evidence, not usage metrics.
 1. Add failing acceptance tests for real suite CLI wiring.
 2. Add harness command profile module for Codex and Claude Code.
 3. Add CLI `--real` handling and validation.
-4. Wire `ProcessHarnessRunner` into `specs run --real`.
+4. Wire `ProcessHarnessRunner` into `run --real`.
 5. Add hook command resolution strategy for local development and packaged usage.
 6. Persist stdout, stderr, and process exit diagnostics.
 7. Add progress output for real suite trials.
@@ -332,7 +332,7 @@ npm run build
 
 ## Done Criteria
 
-- `specs run --real --harness codex --trials 1` runs without manual `--harness-command-json` for Codex.
+- `run --real --harness codex --trials 1` runs without manual `--harness-command-json` for Codex.
 - Real suite mode captures hook events and process diagnostics for every trial.
 - A missing harness executable is reported before expensive work starts.
 - Long-running real trials show safe progress output.

@@ -30,7 +30,7 @@ export async function createRunLocalHookCommandShim(
   const previousContent = await readExistingFile(shimPath);
   const script = [
     "#!/bin/sh",
-    "if [ \"${1:-}\" = \"hook-capture\" ]; then",
+    "if [ \"${1:-}\" = \"internal\" ] && [ \"${2:-}\" = \"hook-capture\" ]; then",
     `  exec ${shellQuote(nodeExecutable)} -e ${shellQuote(hookCaptureShimJavaScript())} "$@"`,
     "fi",
     `exec ${shellQuote(nodeExecutable)} ${shellQuote(cliEntrypoint)} "$@"`,

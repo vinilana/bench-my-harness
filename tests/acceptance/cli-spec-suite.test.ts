@@ -6,14 +6,14 @@ import { describe, expect, test } from "vitest";
 import { runCli } from "../../src/adapters/inbound/cli/main.js";
 
 describe("CLI spec catalog and suite execution", () => {
-  test("specs init, create, validate, and dry-run suite execution use local catalog files", async () => {
+  test("init, add, doctor, and dry-run suite execution use local catalog files", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "bmh-cli-spec-suite-"));
     const output = createOutput();
     await mkdir(join(cwd, "docs"), { recursive: true });
     await writeFile(join(cwd, "docs", "login-validation.md"), "# Login validation\n\nImplement validation.\n", "utf8");
 
     await expect(
-      runCli(["node", "bench-my-harness", "specs", "init"], {
+      runCli(["node", "bench-my-harness", "init"], {
         cwd,
         stdout: output.stdout,
         stderr: output.stderr
@@ -25,8 +25,7 @@ describe("CLI spec catalog and suite execution", () => {
         [
           "node",
           "bench-my-harness",
-          "specs",
-          "create",
+          "add",
           "--id",
           "login-validation",
           "--name",
@@ -50,7 +49,7 @@ describe("CLI spec catalog and suite execution", () => {
     ).resolves.toBe(0);
 
     await expect(
-      runCli(["node", "bench-my-harness", "specs", "validate"], {
+      runCli(["node", "bench-my-harness", "doctor"], {
         cwd,
         stdout: output.stdout,
         stderr: output.stderr
@@ -62,7 +61,6 @@ describe("CLI spec catalog and suite execution", () => {
         [
           "node",
           "bench-my-harness",
-          "specs",
           "run",
           "--dry-run",
           "--run-id",
@@ -124,7 +122,7 @@ describe("CLI spec catalog and suite execution", () => {
     ))).resolves.toBeDefined();
   });
 
-  test("specs create --from-git creates a review-needed backward draft from local git evidence", async () => {
+  test("add --from-git creates a review-needed backward draft from local git evidence", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "bmh-cli-spec-git-"));
     const output = createOutput();
 
@@ -146,8 +144,7 @@ describe("CLI spec catalog and suite execution", () => {
       [
         "node",
         "bench-my-harness",
-        "specs",
-        "create",
+        "add",
         "--from-git",
         "--id",
         "feature-validation",
@@ -185,12 +182,12 @@ describe("CLI spec catalog and suite execution", () => {
     expect(output.stderr()).toBe("");
   });
 
-  test("specs backfill rejects non-positive limits without writing drafts", async () => {
+  test("add --from-git --range rejects non-positive limits without writing drafts", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "bmh-cli-spec-backfill-"));
     const output = createOutput();
 
     const exitCode = await runCli(
-      ["node", "bench-my-harness", "specs", "backfill", "--repo-path", ".", "--range", "HEAD~1..HEAD", "--limit", "0"],
+      ["node", "bench-my-harness", "add", "--from-git", "--repo-path", ".", "--range", "HEAD~1..HEAD", "--limit", "0"],
       { cwd, stdout: output.stdout, stderr: output.stderr }
     );
 

@@ -7,12 +7,12 @@ import { runCli } from "../../src/adapters/inbound/cli/main.js";
 import { BenchmarkSchema } from "../../src/domain/benchmark/benchmark-schema.js";
 
 describe("CLI benchmark init interactive mode", () => {
-  test("init benchmark defaults to interactive mode and writes a valid benchmark", async () => {
+  test("benchmark init defaults to interactive mode and writes a valid benchmark", async () => {
     const dir = await mkdtemp(join(tmpdir(), "bmh-cli-init-interactive-"));
     const outputPath = join(dir, "interactive.benchmark.json");
     const output = createOutput();
 
-    const exitCode = await runCli(["node", "bench-my-harness", "init", "benchmark", "--output", outputPath], {
+    const exitCode = await runCli(["node", "bench-my-harness", "benchmark", "init", "--output", outputPath], {
       stdin: interactiveAnswers([
         "interactive-001",
         "Interactive benchmark",
@@ -60,7 +60,7 @@ describe("CLI benchmark init interactive mode", () => {
     const dir = await mkdtemp(join(tmpdir(), "bmh-cli-init-interactive-"));
     const outputPath = join(dir, "interactive-prompt-file.benchmark.json");
 
-    const exitCode = await runCli(["node", "bench-my-harness", "init", "benchmark", "--output", outputPath], {
+    const exitCode = await runCli(["node", "bench-my-harness", "benchmark", "init", "--output", outputPath], {
       stdin: interactiveAnswers([
         "interactive-prompt-file-001",
         "Interactive prompt file",
@@ -98,7 +98,7 @@ describe("CLI benchmark init interactive mode", () => {
     const dir = await mkdtemp(join(tmpdir(), "bmh-cli-init-interactive-"));
     const outputPath = join(dir, "interactive-repo-path.benchmark.json");
 
-    const exitCode = await runCli(["node", "bench-my-harness", "init", "benchmark", "--output", outputPath], {
+    const exitCode = await runCli(["node", "bench-my-harness", "benchmark", "init", "--output", outputPath], {
       stdin: interactiveAnswers([
         "interactive-repo-path-001",
         "Interactive repo path",
@@ -140,7 +140,7 @@ describe("CLI benchmark init interactive mode", () => {
     });
     const outputPath = join(dir, "interactive-detected.benchmark.json");
 
-    const exitCode = await runCli(["node", "bench-my-harness", "init", "benchmark", "--output", outputPath], {
+    const exitCode = await runCli(["node", "bench-my-harness", "benchmark", "init", "--output", outputPath], {
       stdin: interactiveAnswers([
         "interactive-detected-001",
         "Interactive detected",
@@ -174,7 +174,7 @@ describe("CLI benchmark init interactive mode", () => {
     const dir = await createNodeProject({ scripts: { test: "vitest run" } });
     const outputPath = join(dir, "interactive-manual.benchmark.json");
 
-    const exitCode = await runCli(["node", "bench-my-harness", "init", "benchmark", "--output", outputPath], {
+    const exitCode = await runCli(["node", "bench-my-harness", "benchmark", "init", "--output", outputPath], {
       stdin: interactiveAnswers([
         "interactive-manual-001",
         "Interactive manual",
@@ -230,7 +230,7 @@ describe("CLI benchmark init interactive mode", () => {
       ""
     ];
 
-    const exitCode = await runCli(["node", "bench-my-harness", "init", "benchmark", "--output", outputPath], {
+    const exitCode = await runCli(["node", "bench-my-harness", "benchmark", "init", "--output", outputPath], {
       stdout: output.stdout,
       stderr: output.stderr,
       question: (label: string) => {
@@ -261,7 +261,7 @@ describe("CLI benchmark init interactive mode", () => {
     const output = createOutput();
 
     const exitCode = await runCli(
-      ["node", "bench-my-harness", "init", "benchmark", "--output", join(dir, "eof.benchmark.json")],
+      ["node", "bench-my-harness", "benchmark", "init", "--output", join(dir, "eof.benchmark.json")],
       {
         stdin: "only-one-answer\n",
         stdout: output.stdout,

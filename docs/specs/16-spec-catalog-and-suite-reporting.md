@@ -227,7 +227,7 @@ The runner must continue the suite after an individual trial failure unless the 
 
 ## CLI Surface
 
-For convention-based defaults, prompt-file inference, bulk prompt import, and `specs smoke`, see
+For convention-based defaults, prompt-file inference, bulk prompt import, and `smoke`, see
 [`17-cli-defaults-and-convention-authoring.md`](./17-cli-defaults-and-convention-authoring.md).
 
 For git checkout provisioning required by comparable real runs, see
@@ -239,19 +239,19 @@ For real Codex/Claude Code suite execution, command profiles, hook command resol
 Create or update the local spec catalog:
 
 ```bash
-bench-my-harness specs init
+bench-my-harness init
 ```
 
 Create a spec interactively:
 
 ```bash
-bench-my-harness specs create
+bench-my-harness add
 ```
 
 Create a spec non-interactively:
 
 ```bash
-bench-my-harness specs create \
+bench-my-harness add \
   --id login-validation \
   --name "Login validation" \
   --category bugfix \
@@ -266,7 +266,7 @@ bench-my-harness specs create \
 Create a backward spec draft from an already implemented feature:
 
 ```bash
-bench-my-harness specs create --from-git \
+bench-my-harness add --from-git \
   --id login-validation \
   --name "Login validation" \
   --category bugfix \
@@ -278,29 +278,28 @@ bench-my-harness specs create --from-git \
 Create drafts for multiple historical changes:
 
 ```bash
-bench-my-harness specs backfill \
+bench-my-harness add --from-git \
   --repo-path . \
   --range main~20..main \
-  --limit 25 \
-  --output .bmh/specs/backfill
+  --limit 25
 ```
 
 Validate a catalog:
 
 ```bash
-bench-my-harness specs validate
+bench-my-harness doctor
 ```
 
 Run all specs with suite defaults:
 
 ```bash
-bench-my-harness specs run
+bench-my-harness run
 ```
 
 Run selected harnesses:
 
 ```bash
-bench-my-harness specs run \
+bench-my-harness run \
   --harness codex \
   --harness claude_code
 ```
@@ -308,7 +307,7 @@ bench-my-harness specs run \
 Run selected specs:
 
 ```bash
-bench-my-harness specs run \
+bench-my-harness run \
   --spec login-validation \
   --spec pricing-rounding
 ```
@@ -316,7 +315,7 @@ bench-my-harness specs run \
 Run selected tags:
 
 ```bash
-bench-my-harness specs run --tag auth
+bench-my-harness run --tag auth
 ```
 
 Render or re-render an HTML report:
@@ -332,11 +331,11 @@ Rules:
 - The default catalog root is `.bmh/specs`.
 - `--catalog-root <path>` may override the catalog root.
 - CLI defaults and convention-based shortcuts are specified separately in `docs/specs/17-cli-defaults-and-convention-authoring.md`.
-- `specs create` defaults to interactive mode when required authoring fields are missing and stdin/stdout are TTYs.
-- `specs create --from-git` creates a draft spec from Git evidence and marks semantic requirements as requiring review.
-- `specs backfill` creates draft specs only; drafts are not included in `suite.json` unless `--include-in-suite` is passed.
-- `specs backfill` defaults to `--limit 25` when no limit is provided.
-- `specs backfill --limit <count>` must reject non-positive values.
+- `add` defaults to interactive mode when required authoring fields are missing and stdin/stdout are TTYs.
+- `add --from-git` creates a draft spec from Git evidence and marks semantic requirements as requiring review.
+- `add --from-git --range <range>` creates draft specs only; drafts are not included in `suite.json` unless `--include-in-suite` is passed.
+- `add --from-git --range <range>` defaults to `--limit 25` when no limit is provided.
+- `add --from-git --range <range> --limit <count>` must reject non-positive values.
 - Generated specs must be deterministic and safe to edit by humans.
 - `--harness` may be repeated.
 - `--spec` may be repeated.
@@ -357,7 +356,7 @@ Backward authoring is important because many teams will adopt BMH after their pr
 
 ### Interactive Creation
 
-`bench-my-harness specs create` should ask for:
+`bench-my-harness add` should ask for:
 
 - spec id;
 - name;
@@ -385,11 +384,11 @@ The generated files are:
 .bmh/specs/features/<spec-id>/benchmark.json
 ```
 
-If `.bmh/specs/suite.json` does not exist, `specs create` may offer to create it.
+If `.bmh/specs/suite.json` does not exist, `add` may offer to create it.
 
 ### Backward Spec Drafting From Git
 
-`bench-my-harness specs create --from-git` should inspect local Git metadata and create a draft benchmark spec for an already implemented feature.
+`bench-my-harness add --from-git` should inspect local Git metadata and create a draft benchmark spec for an already implemented feature.
 
 Inputs:
 
@@ -621,11 +620,11 @@ src/adapters/outbound/storage/filesystem-html-report-store.ts
 CLI integration:
 
 ```text
-bench-my-harness specs init
-bench-my-harness specs create
-bench-my-harness specs backfill
-bench-my-harness specs validate
-bench-my-harness specs run
+bench-my-harness init
+bench-my-harness add
+bench-my-harness add --from-git
+bench-my-harness doctor
+bench-my-harness run
 bench-my-harness report --format html
 ```
 
@@ -689,23 +688,23 @@ Add tests before implementation:
   - excludes raw payloads and known secrets.
 
 - `tests/acceptance/cli-spec-suite.test.ts`
-  - `specs validate` validates the default `.bmh/specs` catalog;
-  - `specs validate --catalog-root <path>` validates a custom catalog;
-  - `specs run --dry-run` creates `.bmh/runs/<run-id>/results.json`;
-  - `specs run --dry-run` creates `.bmh/runs/<run-id>/report.html`;
+  - `doctor` validates the default `.bmh/specs` catalog;
+  - `doctor --catalog-root <path>` validates a custom catalog;
+  - `run --dry-run` creates `.bmh/runs/<run-id>/results.json`;
+  - `run --dry-run` creates `.bmh/runs/<run-id>/report.html`;
   - `report --run-id <run-id> --format html` re-renders the HTML report.
 
 - `tests/acceptance/cli-spec-authoring.test.ts`
-  - `specs init` creates `.bmh/specs/suite.json`;
-  - `specs create` writes `spec.md` and `benchmark.json`;
-  - `specs create` can add the new spec to `suite.json`;
-  - `specs create --from-git` writes a backward draft with `base_ref`, `golden_ref`, changed-file evidence, and `review_status = "needs_human_review"`;
-  - `specs backfill` creates draft specs without adding them to the suite by default;
-  - `specs backfill` creates at most 25 draft specs by default;
-  - `specs backfill --limit <count>` overrides the default draft count limit;
-  - `specs backfill --limit 0` is rejected;
+  - `init` creates `.bmh/specs/suite.json`;
+  - `add` writes `spec.md` and `benchmark.json`;
+  - `add` can add the new spec to `suite.json`;
+  - `add --from-git` writes a backward draft with `base_ref`, `golden_ref`, changed-file evidence, and `review_status = "needs_human_review"`;
+  - `add --from-git` creates draft specs without adding them to the suite by default;
+  - `add --from-git` creates at most 25 draft specs by default;
+  - `add --from-git --limit <count>` overrides the default draft count limit;
+  - `add --from-git --limit 0` is rejected;
   - authoring rejects paths that escape `.bmh/specs`;
-  - generated specs pass `specs validate`.
+  - generated specs pass `doctor`.
 
 ## Fixtures
 
@@ -735,7 +734,7 @@ Fixtures must not require real Codex or Claude Code binaries.
 8. Add suite runner use case that reuses `BenchmarkRunner`.
 9. Add suite result aggregation and global benchmark summary.
 10. Add static HTML report serialization.
-11. Add CLI commands for `specs init`, `specs create`, `specs backfill`, `specs validate`, `specs run`, and `report --format html`.
+11. Add CLI commands for `init`, `add`, `add --from-git`, `doctor`, `run`, and `report --format html`.
 12. Update README Getting Started after executable behavior exists.
 13. Run:
 

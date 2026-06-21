@@ -12,7 +12,7 @@ import {
 } from "../support/spec19-fixtures.js";
 
 describe("CLI spec real harness suite execution", () => {
-  test("specs run --real --harness codex wires a process harness runner for suite execution", async () => {
+  test("run --real --harness codex wires a process harness runner for suite execution", async () => {
     const workspace = await createSpec19Workspace({ prefix: "bmh-cli-real-run-" });
     const fakeBin = join(workspace.cwd, "fake-bin");
     const output = createOutput();
@@ -40,7 +40,6 @@ process.stdout.write("fake codex completed\\n");
         [
           "node",
           "bench-my-harness",
-          "specs",
           "run",
           "--real",
           "--catalog-root",
@@ -79,7 +78,7 @@ process.stdout.write("fake codex completed\\n");
     });
   });
 
-  test("specs run --real --dry-run is rejected before loading a harness", async () => {
+  test("run --real --dry-run is rejected before loading a harness", async () => {
     const workspace = await createSpec19Workspace({ prefix: "bmh-cli-real-dry-run-" });
     const output = createOutput();
 
@@ -87,7 +86,6 @@ process.stdout.write("fake codex completed\\n");
       [
         "node",
         "bench-my-harness",
-        "specs",
         "run",
         "--real",
         "--dry-run",
@@ -119,7 +117,6 @@ process.stdout.write("fake codex completed\\n");
         [
           "node",
           "bench-my-harness",
-          "specs",
           "run",
           "--real",
           "--catalog-root",
@@ -177,7 +174,6 @@ await import("node:fs/promises").then(({ writeFile }) => writeFile(process.env.C
       [
         "node",
         "bench-my-harness",
-        "specs",
         "run",
         "--real",
         "--catalog-root",

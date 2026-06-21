@@ -130,6 +130,7 @@ function hookCommand(
 ): string {
   return [
     shellQuote(hookCommandPath),
+    "internal",
     "hook-capture",
     "--provider",
     "claude_code",

@@ -7,7 +7,7 @@ import { runCli } from "../../src/adapters/inbound/cli/main.js";
 import { BenchmarkSchema } from "../../src/domain/benchmark/benchmark-schema.js";
 
 describe("CLI benchmark init template mode", () => {
-  test("init benchmark --template writes a valid benchmark JSON file", async () => {
+  test("benchmark init --template writes a valid benchmark JSON file", async () => {
     const dir = await mkdtemp(join(tmpdir(), "bmh-cli-init-"));
     const outputPath = join(dir, "login-validation.benchmark.json");
     const output = createOutput();
@@ -16,8 +16,7 @@ describe("CLI benchmark init template mode", () => {
       [
         "node",
         "bench-my-harness",
-        "init",
-        "benchmark",
+        "benchmark", "init",
         "--template",
         "--id",
         "login-validation-001",
@@ -51,7 +50,7 @@ describe("CLI benchmark init template mode", () => {
     expect(output.stderr()).toBe("");
   });
 
-  test("generated template passes validate benchmark", async () => {
+  test("generated template passes benchmark validate", async () => {
     const dir = await mkdtemp(join(tmpdir(), "bmh-cli-init-"));
     const outputPath = join(dir, "benchmark.json");
     const initOutput = createOutput();
@@ -61,8 +60,7 @@ describe("CLI benchmark init template mode", () => {
       [
         "node",
         "bench-my-harness",
-        "init",
-        "benchmark",
+        "benchmark", "init",
         "--template",
         "--id",
         "template-validate-001",
@@ -82,7 +80,7 @@ describe("CLI benchmark init template mode", () => {
       { stdout: initOutput.stdout, stderr: initOutput.stderr }
     );
 
-    const exitCode = await runCli(["node", "bench-my-harness", "validate", "benchmark", outputPath], {
+    const exitCode = await runCli(["node", "bench-my-harness", "benchmark", "validate", outputPath], {
       stdout: validateOutput.stdout,
       stderr: validateOutput.stderr
     });
@@ -99,8 +97,7 @@ describe("CLI benchmark init template mode", () => {
       [
         "node",
         "bench-my-harness",
-        "init",
-        "benchmark",
+        "benchmark", "init",
         "--template",
         "--id",
         "fixture-001",
@@ -138,8 +135,7 @@ describe("CLI benchmark init template mode", () => {
       [
         "node",
         "bench-my-harness",
-        "init",
-        "benchmark",
+        "benchmark", "init",
         "--template",
         "--id",
         "repo-path-001",
@@ -177,8 +173,7 @@ describe("CLI benchmark init template mode", () => {
       [
         "node",
         "bench-my-harness",
-        "init",
-        "benchmark",
+        "benchmark", "init",
         "--template",
         "--id",
         "prompt-file-001",
@@ -212,8 +207,7 @@ describe("CLI benchmark init template mode", () => {
       [
         "node",
         "bench-my-harness",
-        "init",
-        "benchmark",
+        "benchmark", "init",
         "--template",
         "--id",
         "bad-prompt-001",
@@ -247,8 +241,7 @@ describe("CLI benchmark init template mode", () => {
       [
         "node",
         "bench-my-harness",
-        "init",
-        "benchmark",
+        "benchmark", "init",
         "--template",
         "--id",
         "bad-source-001",
@@ -295,8 +288,7 @@ describe("CLI benchmark init template mode", () => {
       [
         "node",
         "bench-my-harness",
-        "init",
-        "benchmark",
+        "benchmark", "init",
         "--template",
         "--id",
         "missing-prompt-001",
@@ -323,8 +315,7 @@ function templateCommand(outputPath: string, extra: string[]): string[] {
   return [
     "node",
     "bench-my-harness",
-    "init",
-    "benchmark",
+    "benchmark", "init",
     "--template",
     "--id",
     "force-001",

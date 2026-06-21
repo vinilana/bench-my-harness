@@ -5,7 +5,7 @@ import { describe, expect, test } from "vitest";
 
 import { runCli } from "../../src/adapters/inbound/cli/main.js";
 
-describe("CLI specs configure", () => {
+describe("CLI spec configure", () => {
   test("writes authoring defaults into .bmh/specs/suite.json", async () => {
     const cwd = await prepareTempWorkspace("writes-defaults");
     const output = createOutput();
@@ -15,8 +15,7 @@ describe("CLI specs configure", () => {
       [
         "node",
         "bench-my-harness",
-        "specs",
-        "configure",
+        "init",
         "--repo-path",
         ".",
         "--category",
@@ -63,8 +62,7 @@ describe("CLI specs configure", () => {
       [
         "node",
         "bench-my-harness",
-        "specs",
-        "configure",
+        "init",
         "--setup-command",
         "corepack enable",
         "--setup-command",
@@ -93,8 +91,7 @@ describe("CLI specs configure", () => {
       [
         "node",
         "bench-my-harness",
-        "specs",
-        "configure",
+        "init",
         "--setup-command",
         "npm install",
         "--test-command",
@@ -107,8 +104,7 @@ describe("CLI specs configure", () => {
       [
         "node",
         "bench-my-harness",
-        "specs",
-        "configure",
+        "init",
         "--setup-command",
         "pnpm install --frozen-lockfile",
         "--test-command",
@@ -129,7 +125,7 @@ describe("CLI specs configure", () => {
     await initCatalog(cwd, output);
 
     const exitCode = await runCli(
-      ["node", "bench-my-harness", "specs", "configure", "--harness", "cursor"],
+      ["node", "bench-my-harness", "init", "--harness", "cursor"],
       runtime(cwd, output)
     );
 
@@ -139,7 +135,7 @@ describe("CLI specs configure", () => {
 });
 
 async function initCatalog(cwd: string, output: ReturnType<typeof createOutput>): Promise<void> {
-  const exitCode = await runCli(["node", "bench-my-harness", "specs", "init"], runtime(cwd, output));
+  const exitCode = await runCli(["node", "bench-my-harness", "init"], runtime(cwd, output));
   expect(exitCode).toBe(0);
 }
 

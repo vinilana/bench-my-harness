@@ -23,7 +23,6 @@ describe("real harness command profiles", () => {
         [
           "node",
           "bench-my-harness",
-          "specs",
           "run",
           "--real",
           "--catalog-root",
@@ -75,7 +74,6 @@ describe("real harness command profiles", () => {
         [
           "node",
           "bench-my-harness",
-          "specs",
           "run",
           "--real",
           "--catalog-root",
