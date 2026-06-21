@@ -2,6 +2,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { renderSuiteReportHtml, type SuiteReport, type SuiteTrialReport } from "../../../domain/reports/suite-report.js";
+import { renderStatusPill, reportStyles } from "../../../domain/reports/report-theme.js";
 import { redactSecrets } from "../../../domain/security/redact-secrets.js";
 
 interface HtmlTrial {
@@ -126,50 +127,33 @@ function renderHtml(input: HtmlReport): string {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${escapeHtml(report.suite.name)} ${escapeHtml(report.run_id)}</title>
-<style>
-body { margin: 0; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #172026; background: #f7f8fa; }
-header, main { max-width: 1120px; margin: 0 auto; padding: 24px; }
-header { background: #fff; border-bottom: 1px solid #d9dee5; max-width: none; }
-header > div { max-width: 1120px; margin: 0 auto; }
-h1 { margin: 0 0 8px; font-size: 28px; letter-spacing: 0; }
-h2 { margin: 28px 0 12px; font-size: 20px; letter-spacing: 0; }
-h3 { margin: 0 0 8px; font-size: 16px; letter-spacing: 0; }
-.meta, .muted { color: #5c6975; }
-.summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
-.tile, .trial, .filters { background: #fff; border: 1px solid #d9dee5; border-radius: 8px; padding: 14px; }
-.tile strong { display: block; font-size: 24px; margin-top: 4px; }
-.filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
-label { display: grid; gap: 6px; font-size: 13px; color: #36424d; }
-select { min-height: 34px; border: 1px solid #bac3cc; border-radius: 6px; background: #fff; color: #172026; padding: 4px 8px; }
-table { width: 100%; border-collapse: collapse; background: #fff; border: 1px solid #d9dee5; border-radius: 8px; overflow: hidden; }
-th, td { text-align: left; border-bottom: 1px solid #e8ebef; padding: 10px; vertical-align: top; }
-th { background: #eef2f5; font-size: 13px; }
-code { background: #eef2f5; border-radius: 4px; padding: 2px 4px; }
-.trials { display: grid; gap: 12px; }
-.trial[hidden] { display: none; }
-.badge { display: inline-block; border: 1px solid #bac3cc; border-radius: 999px; padding: 2px 8px; font-size: 12px; margin-right: 4px; color: #36424d; }
-</style>
+<style>${reportStyles()}</style>
 </head>
 <body>
-<header><div>
+<header class="app-header"><div class="app-header__inner">
 <h1>${escapeHtml(report.suite.name)}</h1>
-<div class="meta">Run ${escapeHtml(report.run_id)} · Suite ${escapeHtml(report.suite.id)}@${escapeHtml(report.suite.version)} · Generated ${escapeHtml(report.generated_at)}</div>
-<div class="meta">Harnesses: ${harnesses.map(escapeHtml).join(", ")} · Specs: ${specs.length} · Trials: ${report.trials.length}</div>
+<div class="chips">
+<span class="chip">Run <b>${escapeHtml(report.run_id)}</b></span>
+<span class="chip">Suite <b>${escapeHtml(report.suite.id)}@${escapeHtml(report.suite.version)}</b></span>
+<span class="chip">Generated <b>${escapeHtml(report.generated_at)}</b></span>
+<span class="chip">Harnesses <b>${harnesses.map(escapeHtml).join(", ")}</b></span>
+<span class="chip">Comparability ${renderStatusPill(report.comparability.status)}</span>
+</div>
 </div></header>
 <main>
 <section>
 <h2>Global Benchmark Summary</h2>
 <div class="summary">
-<div class="tile">Specs attempted<strong>${specs.length}</strong></div>
-<div class="tile">Trials attempted<strong>${report.trials.length}</strong></div>
-<div class="tile">Completed<strong>${countStatus(report.trials, "completed")}</strong></div>
-<div class="tile">Failed<strong>${countStatus(report.trials, "failed")}</strong></div>
-<div class="tile">Inconclusive<strong>${report.trials.filter((trial) => trial.comparability.status !== "comparable").length}</strong></div>
-<div class="tile">Comparability<strong>${escapeHtml(report.comparability.status)}</strong></div>
+<div class="metric"><span class="metric__label">Specs attempted</span><span class="metric__value">${specs.length}</span></div>
+<div class="metric"><span class="metric__label">Trials attempted</span><span class="metric__value">${report.trials.length}</span></div>
+<div class="metric"><span class="metric__label">Completed</span><span class="metric__value">${countStatus(report.trials, "completed")}</span></div>
+<div class="metric"><span class="metric__label">Failed</span><span class="metric__value">${countStatus(report.trials, "failed")}</span></div>
+<div class="metric"><span class="metric__label">Inconclusive</span><span class="metric__value">${report.trials.filter((trial) => trial.comparability.status !== "comparable").length}</span></div>
+<div class="metric"><span class="metric__label">Comparability</span><span class="metric__value" style="font-size:18px">${escapeHtml(report.comparability.status)}</span></div>
 </div>
-<p class="muted">Unavailable token, cost, or context metrics are shown explicitly as unavailable.</p>
-<p class="muted">Comparability reasons: ${report.comparability.reasons.map(escapeHtml).join("; ") || "none"}.</p>
-<p class="muted">Redaction: ${escapeHtml(report.security.redaction.status)}. Raw payloads included: ${String(report.security.redaction.raw_payloads_included)}.</p>
+<p class="section-note">Unavailable token, cost, or context metrics are shown explicitly as unavailable.</p>
+<p class="section-note">Comparability reasons: ${report.comparability.reasons.map(escapeHtml).join("; ") || "none"}.</p>
+<p class="section-note">Redaction: ${escapeHtml(report.security.redaction.status)}. Raw payloads included: ${String(report.security.redaction.raw_payloads_included)}.</p>
 </section>
 <section>
 <h2>Pass rate by harness</h2>
@@ -304,11 +288,11 @@ function renderHarnessSummaryRow(summary: ReturnType<typeof summarizeHarness>): 
 function renderTrial(trial: HtmlTrial, tags: readonly string[]): string {
   return `<article class="trial" data-harness="${escapeHtml(trial.harness)}" data-spec="${escapeHtml(trial.spec_id)}" data-tags="${escapeHtml(tags.join(","))}" data-status="${escapeHtml(trial.status)}" data-comparability="${escapeHtml(trial.comparability.status)}">
 <h3>${escapeHtml(trial.spec_id)} · ${escapeHtml(trial.harness)} · ${escapeHtml(trial.trial_id)}</h3>
-<p>Status: ${escapeHtml(trial.status)}${trial.failure_classification ? ` · Failure: ${escapeHtml(trial.failure_classification)}` : ""} · Score: ${formatNumber(trial.score)}${trial.duration_ms === undefined ? "" : ` · Duration: ${formatNumber(trial.duration_ms)} ms`}</p>
-<p>Metrics: ${trial.metrics.map((metric) => `${escapeHtml(metric.metric)} ${escapeHtml(metric.measurement_source)} (${escapeHtml(metric.capture_source)}/${escapeHtml(metric.confidence)})`).join(", ")}</p>
-<p>Comparability: ${escapeHtml(trial.comparability.status)} ${trial.comparability.reasons.map(escapeHtml).join("; ")}</p>
-<p>Artifacts: ${trial.artifact_refs.map(renderArtifactLink).join(" ") || "none"}</p>
-<p>Notes: ${trial.notes.map(escapeHtml).join("; ") || "none"}</p>
+<p><b>Status:</b> ${renderStatusPill(trial.status)}${trial.failure_classification ? ` <b>Failure:</b> ${escapeHtml(trial.failure_classification)}` : ""} · <b>Score:</b> ${formatNumber(trial.score)}${trial.duration_ms === undefined ? "" : ` · <b>Duration:</b> ${formatNumber(trial.duration_ms)} ms`}</p>
+<p><b>Metrics:</b> ${trial.metrics.map((metric) => `${escapeHtml(metric.metric)} ${escapeHtml(metric.measurement_source)} (${escapeHtml(metric.capture_source)}/${escapeHtml(metric.confidence)})`).join(", ")}</p>
+<p><b>Comparability:</b> ${renderStatusPill(trial.comparability.status)} ${trial.comparability.reasons.map(escapeHtml).join("; ")}</p>
+<p><b>Artifacts:</b> ${trial.artifact_refs.map(renderArtifactLink).join(" ") || "none"}</p>
+<p><b>Notes:</b> ${trial.notes.map(escapeHtml).join("; ") || "none"}</p>
 </article>`;
 }
 

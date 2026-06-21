@@ -1,4 +1,5 @@
 import { redactSecrets } from "../security/redact-secrets.js";
+import { renderStatusPill, reportStyles } from "./report-theme.js";
 
 export type SuiteTrialStatus = "completed" | "failed" | "inconclusive";
 export type SuiteComparabilityStatus = "comparable" | "limited" | "not_comparable";
@@ -285,9 +286,9 @@ export function renderSuiteReportHtml(report: SuiteReport): string {
 <td>${escapeHtml(trial.spec_id)}</td>
 <td>${escapeHtml(trial.harness)}</td>
 <td>${escapeHtml(trial.trial_id)}</td>
-<td>${escapeHtml(trial.status)}</td>
+<td>${renderStatusPill(trial.status)}</td>
 <td>${escapeHtml(String(trial.score))}</td>
-<td>${escapeHtml(trial.comparability.status)}</td>
+<td>${renderStatusPill(trial.comparability.status)}</td>
 <td>${escapeHtml(metricSource)} ${trial.metrics.map(renderMetricBadge).join(" ")}</td>
 <td>${trial.artifact_refs.map(renderArtifactLink).join(", ")}</td>
 </tr>`;
@@ -327,41 +328,32 @@ export function renderSuiteReportHtml(report: SuiteReport): string {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Bench My Harness Report ${escapeHtml(sanitized.run_id)}</title>
-<style>
-body { font-family: system-ui, sans-serif; margin: 24px; color: #1f2933; background: #f7f8fa; }
-main { max-width: 1180px; margin: 0 auto; }
-section { margin: 24px 0; }
-table { width: 100%; border-collapse: collapse; background: #fff; }
-th, td { padding: 10px 12px; border-bottom: 1px solid #d9dee7; text-align: left; }
-th { background: #eef2f6; }
-.filters { display: flex; gap: 12px; flex-wrap: wrap; }
-label { display: grid; gap: 4px; font-size: 13px; }
-input, select { padding: 8px; border: 1px solid #b8c0cc; border-radius: 6px; min-width: 180px; }
-.summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
-.metric { background: #fff; padding: 14px; border: 1px solid #d9dee7; border-radius: 8px; }
-.source-badge { display: inline-block; border: 1px solid #aeb8c3; border-radius: 999px; padding: 2px 7px; margin: 2px; font-size: 12px; color: #394956; background: #fff; }
-.charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; }
-.chart { background: #fff; border: 1px solid #d9dee7; border-radius: 8px; padding: 12px; }
-.chart svg { width: 100%; height: auto; display: block; }
-.views { display: flex; gap: 8px; flex-wrap: wrap; }
-.views button { padding: 8px 10px; border: 1px solid #aeb8c3; background: #fff; border-radius: 6px; }
-</style>
+<style>${reportStyles()}</style>
 </head>
 <body>
-<main>
+<header class="app-header"><div class="app-header__inner">
 <h1>${escapeHtml(sanitized.suite.name)}</h1>
-<p>Run ${escapeHtml(sanitized.run_id)} · Suite ${escapeHtml(sanitized.suite.id)}@${escapeHtml(sanitized.suite.version)} · Generated ${escapeHtml(sanitized.generated_at)}</p>
-<p>Redaction: ${escapeHtml(sanitized.security.redaction.status)}</p>
-<section class="summary" aria-label="Global benchmark summary">
+<div class="chips">
+<span class="chip">Run <b>${escapeHtml(sanitized.run_id)}</b></span>
+<span class="chip">Suite <b>${escapeHtml(sanitized.suite.id)}@${escapeHtml(sanitized.suite.version)}</b></span>
+<span class="chip">Generated <b>${escapeHtml(sanitized.generated_at)}</b></span>
+<span class="chip">Redaction: ${escapeHtml(sanitized.security.redaction.status)}</span>
+<span class="chip">Comparability ${renderStatusPill(sanitized.global_summary.comparability_status)}</span>
+</div>
+</div></header>
+<main>
+<section class="summary-section" aria-label="Global benchmark summary">
 <h2>Global Benchmark Summary</h2>
-<div class="metric"><strong>Specs</strong><br>${sanitized.spec_count}</div>
-<div class="metric"><strong>Trials</strong><br>${sanitized.trial_count}</div>
-<div class="metric"><strong>Completed</strong><br>${sanitized.global_summary.completed}</div>
-<div class="metric"><strong>Failed</strong><br>${sanitized.global_summary.failed}</div>
-<div class="metric"><strong>Comparability</strong><br>${escapeHtml(sanitized.global_summary.comparability_status)}</div>
-<div class="metric"><strong>Pass rate by harness</strong><br>${escapeHtml(passRates)}</div>
+<div class="summary">
+<div class="metric"><span class="metric__label">Specs</span><span class="metric__value">${sanitized.spec_count}</span></div>
+<div class="metric"><span class="metric__label">Trials</span><span class="metric__value">${sanitized.trial_count}</span></div>
+<div class="metric"><span class="metric__label">Completed</span><span class="metric__value">${sanitized.global_summary.completed}</span></div>
+<div class="metric"><span class="metric__label">Failed</span><span class="metric__value">${sanitized.global_summary.failed}</span></div>
+<div class="metric"><span class="metric__label">Comparability</span><span class="metric__value" style="font-size:18px">${escapeHtml(sanitized.global_summary.comparability_status)}</span></div>
+<div class="metric"><span class="metric__label">Pass rate by harness</span><span class="metric__value" style="font-size:15px;font-weight:600">${escapeHtml(passRates)}</span></div>
+</div>
+<p class="section-note">Comparability reasons: ${escapeHtml(comparabilityReasons)}</p>
 </section>
-<p>${escapeHtml(comparabilityReasons)}</p>
 <section>
 <h2>Harness Ranking</h2>
 <div class="filters">
@@ -427,10 +419,10 @@ ${renderArtifactIntegrity(sanitized)}
 </section>
 <section>
 <h2>Trial Details</h2>
-<div class="views" aria-label="Report view controls">
-<button type="button" data-view="aggregate">Aggregate suite view</button>
-<button type="button" data-view="per-spec">Per-spec view</button>
-<button type="button" data-view="per-trial">Per-trial view</button>
+<div class="views" role="group" aria-label="Report view controls">
+<button type="button" data-view="aggregate" aria-pressed="true">Aggregate suite view</button>
+<button type="button" data-view="per-spec" aria-pressed="false">Per-spec view</button>
+<button type="button" data-view="per-trial" aria-pressed="false">Per-trial view</button>
 </div>
 <div class="filters">
 <label>Harness <select id="filter-harness"><option value="">All</option>${sanitized.selected_harnesses.map((harness) => `<option value="${escapeHtml(harness)}">${escapeHtml(harness)}</option>`).join("")}</select></label>
@@ -449,6 +441,10 @@ ${renderArtifactIntegrity(sanitized)}
 const filters = ["harness", "spec", "tag", "status", "comparability"];
 for (const name of filters) document.getElementById("filter-" + name).addEventListener("input", applyFilters);
 document.getElementById("ranking-dimension").addEventListener("change", updateRanking);
+const viewButtons = Array.from(document.querySelectorAll(".views button"));
+for (const button of viewButtons) button.addEventListener("click", () => {
+  for (const other of viewButtons) other.setAttribute("aria-pressed", String(other === button));
+});
 function applyFilters() {
   const values = Object.fromEntries(filters.map((name) => [name, document.getElementById("filter-" + name).value.toLowerCase()]));
   for (const row of document.querySelectorAll("#trial-rows tr")) {
@@ -573,7 +569,7 @@ function renderBarChart(
     const y = 30 + index * 34;
     const label = `${item.label}: ${item.value === null ? "unavailable" : `${formatNumber(item.value)} ${unit}`}`;
 
-    return `<text x="0" y="${y + 13}" font-size="12">${escapeHtml(item.label)}</text><rect x="110" y="${y}" width="${width}" height="18" fill="#547c9f"></rect><text x="${116 + width}" y="${y + 13}" font-size="12">${escapeHtml(label.replace(`${item.label}: `, ""))}</text>`;
+    return `<text x="0" y="${y + 13}" font-size="12">${escapeHtml(item.label)}</text><rect x="110" y="${y}" width="${width}" height="18" rx="3"></rect><text x="${116 + width}" y="${y + 13}" font-size="12">${escapeHtml(label.replace(`${item.label}: `, ""))}</text>`;
   }).join("");
 
   return `<div class="chart"><h3>${escapeHtml(title)}</h3><svg viewBox="0 0 340 ${Math.max(80, values.length * 34 + 30)}" role="img" aria-label="${escapeHtml(title)}">${rows}</svg></div>`;
@@ -605,7 +601,7 @@ function renderUsageList(report: SuiteReport, kind: "llms" | "subagents" | "skil
     return (usage.mcps ?? []).map((mcp) => `<li>${escapeHtml(trial.harness)}: ${escapeHtml(`${mcp.server}${mcp.tool ? `.${mcp.tool}` : ""}`)} calls ${mcp.call_count ?? 0} ${renderSourceBadge(mcp.measurement_source, mcp.capture_source, mcp.confidence)}</li>`);
   });
 
-  return `<ul>${items.join("") || "<li>unavailable</li>"}</ul>`;
+  return `<ul class="usage-list">${items.join("") || "<li>unavailable</li>"}</ul>`;
 }
 
 function renderSubagentModels(subagent: NonNullable<SuiteUsageReport["subagents"]>[number]): string {
