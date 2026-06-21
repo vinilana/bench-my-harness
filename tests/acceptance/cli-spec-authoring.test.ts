@@ -105,6 +105,69 @@ describe("CLI spec authoring", () => {
     expect(output.stdout()).toMatch(/spec (created|written): .*login-validation|spec written: login-validation/s);
   });
 
+  test("add with no arguments collects interactive answers and writes a feature spec", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "bmh-specs-add-interactive-"));
+    const output = createOutput();
+
+    const exitCode = await runCli(["node", "bench-my-harness", "add"], {
+      ...createRuntime(output),
+      cwd: dir,
+      stdin: interactiveAnswers([
+        "interactive-add",
+        "Interactive Add",
+        "feature",
+        "repo",
+        ".",
+        "",
+        "n",
+        "npm install",
+        "npm test",
+        "text",
+        "Implement the interactive spec.",
+        "Keep the public API stable",
+        "900",
+        "",
+        "src/login.ts",
+        "",
+        "Unit tests must pass"
+      ])
+    });
+
+    expect(cliResult(exitCode, output)).toMatchObject({ exitCode: 0, stderr: "" });
+
+    const specPath = join(dir, ".bmh/specs/features/interactive-add/spec.md");
+    const benchmarkPath = join(dir, ".bmh/specs/features/interactive-add/benchmark.json");
+    const suitePath = join(dir, ".bmh/specs/suite.json");
+    const benchmark = BenchmarkSchema.parse(JSON.parse(await readFile(benchmarkPath, "utf8")));
+    const suite = SpecCatalogSchema.parse(JSON.parse(await readFile(suitePath, "utf8")));
+
+    expect(await readFile(specPath, "utf8")).toBe("# Interactive Add\n\nImplement the interactive spec.\n");
+    expect(benchmark).toMatchObject({
+      id: "interactive-add",
+      name: "Interactive Add",
+      category: "feature",
+      repo: {
+        url: pathToFileURL(resolve(dir, ".")).href,
+        setup_commands: ["npm install"],
+        test_commands: ["npm test"]
+      },
+      prompt: {
+        file: "spec.md",
+        constraints: ["Keep the public API stable"]
+      },
+      expected_output: {
+        required_files_changed: ["src/login.ts"],
+        semantic_requirements: ["Unit tests must pass"]
+      }
+    });
+    expect(suite.specs).toContainEqual({
+      id: "interactive-add",
+      path: "features/interactive-add/benchmark.json"
+    });
+    expect(output.stdout()).toContain("Benchmark id");
+    expect(output.stdout()).toContain("spec created:");
+  });
+
   test("add --from-git writes deterministic backward draft evidence", async () => {
     const dir = await mkdtemp(join(tmpdir(), "bmh-specs-from-git-"));
     const catalogRoot = join(dir, ".bmh/specs");
@@ -289,6 +352,10 @@ function createRuntime(output: ReturnType<typeof createOutput>): {
   stderr: (chunk: string) => void;
 } {
   return { stdout: output.stdout, stderr: output.stderr };
+}
+
+function interactiveAnswers(answers: string[]): string {
+  return `${answers.join("\n")}\n`;
 }
 
 function cliResult(exitCode: number, output: ReturnType<typeof createOutput>): {

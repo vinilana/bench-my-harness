@@ -418,6 +418,41 @@ export function buildProgram(context: CliContext): Command {
       const includeInSuite = options.includeInSuite ?? defaults?.include_in_suite ?? false;
       const category = options.category ?? defaults?.category;
 
+      if (promptFile === undefined && options.fromGit !== true && hasNoManualSpecFields(options)) {
+        const command = normalizeInteractiveCommand(await collectInteractiveBenchmarkCommand(context), context.cwd);
+        if (command.repoUrl === undefined) {
+          throw new Error("add interactive mode requires a repo source; use benchmark init for fixture benchmarks");
+        }
+
+        const draft = await new CreateFeatureSpecUseCase(new FilesystemSpecCatalogStore()).execute({
+          catalogRoot,
+          repoUrl: command.repoUrl,
+          id: command.id,
+          name: command.name,
+          category: command.category,
+          baseRef: options.baseRef,
+          goldenRef: options.goldenRef,
+          setupCommands: command.setupCommands,
+          testCommands: command.testCommands,
+          promptMarkdown: await promptMarkdownFromInteractiveCommand(command, context.cwd),
+          constraints: command.constraints,
+          timeoutSeconds: command.timeoutSeconds,
+          maxCostUsd: command.maxCostUsd,
+          requiredFilesChanged: command.requiredFilesChanged,
+          forbiddenFilesChanged: command.forbiddenFilesChanged,
+          semanticRequirements: command.semanticRequirements,
+          metadata: {
+            source: "manual_cli",
+            source_prompt_file: command.promptFile
+          },
+          includeInSuite: options.includeInSuite ?? defaults?.include_in_suite ?? true,
+          force: options.force ?? false
+        });
+
+        context.stdout(`spec created: ${resolvePath(catalogRoot, draft.benchmarkPath)}\n`);
+        return;
+      }
+
       if (options.fromGit === true && options.range !== undefined) {
         const drafts = await new CreateBackwardSpecDraftUseCase({
           store: new FilesystemSpecCatalogStore(),
@@ -907,6 +942,29 @@ function hasNonInteractiveAuthoringOptions(options: InitBenchmarkOptions): boole
     hasEntries(options.forbiddenFileChanged) ||
     hasEntries(options.semanticRequirement)
   );
+}
+
+function hasNoManualSpecFields(options: SpecsCreateOptions): boolean {
+  return (
+    options.id === undefined &&
+    options.name === undefined &&
+    options.category === undefined &&
+    options.difficulty === undefined &&
+    options.repoPath === undefined &&
+    options.range === undefined &&
+    options.limit === undefined &&
+    !hasEntries(options.setupCommand) &&
+    !hasEntries(options.testCommand) &&
+    !hasEntries(options.tag)
+  );
+}
+
+async function promptMarkdownFromInteractiveCommand(command: BenchmarkAuthoringCommand, cwd: string): Promise<string> {
+  if (command.promptFile !== undefined) {
+    return readFile(resolvePath(cwd, command.promptFile), "utf8");
+  }
+
+  return `# ${command.name}\n\n${command.promptText ?? "TODO: Describe the feature behavior to implement."}\n`;
 }
 
 async function generatedCommandsFromTemplateOptions(
