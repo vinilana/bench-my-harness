@@ -1,0 +1,50 @@
+{
+  "id": "project-command-generation",
+  "name": "Project command generation",
+  "version": "1.0.0",
+  "category": "feature",
+  "difficulty": "medium",
+  "tags": [
+    "cli",
+    "command-generation"
+  ],
+  "repo": {
+    "url": "file:///home/aicoders/workspace/bench-my-harness",
+    "base_ref": "b8abf4b",
+    "golden_ref": "f90fa73",
+    "setup_commands": [
+      "npm install"
+    ],
+    "test_commands": [
+      "npm test",
+      "npm run typecheck",
+      "npm run build"
+    ]
+  },
+  "prompt": {
+    "file": "spec.md",
+    "constraints": []
+  },
+  "expected_output": {
+    "tests_must_pass": true,
+    "required_files_changed": [],
+    "forbidden_files_changed": [],
+    "semantic_requirements": []
+  },
+  "limits": {
+    "timeout_seconds": 900
+  },
+  "evaluation": {
+    "scoring": {
+      "tests": 0.5,
+      "semantic_requirements": 0.25,
+      "diff_quality": 0.1,
+      "cost_efficiency": 0.1,
+      "constraints": 0.05
+    }
+  },
+  "metadata": {
+    "source": "manual_cli",
+    "source_prompt_file": "docs/specs/15-project-command-generation.md"
+  }
+}

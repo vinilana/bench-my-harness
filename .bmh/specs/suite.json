@@ -1,0 +1,59 @@
+{
+  "id": "local-specs",
+  "name": "Local specs",
+  "version": "1.0.0",
+  "specs": [
+    {
+      "id": "benchmark-authoring",
+      "path": "features/benchmark-authoring/benchmark.json",
+      "tags": [
+        "cli",
+        "benchmark-authoring"
+      ]
+    },
+    {
+      "id": "benchmark-prompt-files",
+      "path": "features/benchmark-prompt-files/benchmark.json",
+      "tags": [
+        "prompt-file",
+        "benchmark-authoring"
+      ]
+    },
+    {
+      "id": "project-command-generation",
+      "path": "features/project-command-generation/benchmark.json",
+      "tags": [
+        "cli",
+        "command-generation"
+      ]
+    },
+    {
+      "id": "spec-catalog-suite-reporting",
+      "path": "features/spec-catalog-suite-reporting/benchmark.json",
+      "tags": [
+        "spec-catalog",
+        "reporting"
+      ]
+    }
+  ],
+  "defaults": {
+    "repo_path": ".",
+    "category": "feature",
+    "trials": 3,
+    "harnesses": [
+      "codex",
+      "claude_code"
+    ],
+    "workspace_root": ".bmh/workspaces",
+    "strict_telemetry": false,
+    "setup_commands": [
+      "npm install"
+    ],
+    "test_commands": [
+      "npm test",
+      "npm run typecheck",
+      "npm run build"
+    ],
+    "include_in_suite": true
+  }
+}

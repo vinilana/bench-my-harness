@@ -1,0 +1,50 @@
+{
+  "id": "benchmark-prompt-files",
+  "name": "Benchmark prompt files",
+  "version": "1.0.0",
+  "category": "feature",
+  "difficulty": "medium",
+  "tags": [
+    "prompt-file",
+    "benchmark-authoring"
+  ],
+  "repo": {
+    "url": "file:///home/aicoders/workspace/bench-my-harness",
+    "base_ref": "d1e8a5f",
+    "golden_ref": "37f9636",
+    "setup_commands": [
+      "npm install"
+    ],
+    "test_commands": [
+      "npm test",
+      "npm run typecheck",
+      "npm run build"
+    ]
+  },
+  "prompt": {
+    "file": "spec.md",
+    "constraints": []
+  },
+  "expected_output": {
+    "tests_must_pass": true,
+    "required_files_changed": [],
+    "forbidden_files_changed": [],
+    "semantic_requirements": []
+  },
+  "limits": {
+    "timeout_seconds": 900
+  },
+  "evaluation": {
+    "scoring": {
+      "tests": 0.5,
+      "semantic_requirements": 0.25,
+      "diff_quality": 0.1,
+      "cost_efficiency": 0.1,
+      "constraints": 0.05
+    }
+  },
+  "metadata": {
+    "source": "manual_cli",
+    "source_prompt_file": "docs/specs/14-benchmark-prompt-file.md"
+  }
+}

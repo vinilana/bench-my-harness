@@ -1,0 +1,50 @@
+{
+  "id": "spec-catalog-suite-reporting",
+  "name": "Spec catalog and suite reporting",
+  "version": "1.0.0",
+  "category": "feature",
+  "difficulty": "hard",
+  "tags": [
+    "spec-catalog",
+    "reporting"
+  ],
+  "repo": {
+    "url": "file:///home/aicoders/workspace/bench-my-harness",
+    "base_ref": "f90fa73",
+    "golden_ref": "a948466",
+    "setup_commands": [
+      "npm install"
+    ],
+    "test_commands": [
+      "npm test",
+      "npm run typecheck",
+      "npm run build"
+    ]
+  },
+  "prompt": {
+    "file": "spec.md",
+    "constraints": []
+  },
+  "expected_output": {
+    "tests_must_pass": true,
+    "required_files_changed": [],
+    "forbidden_files_changed": [],
+    "semantic_requirements": []
+  },
+  "limits": {
+    "timeout_seconds": 900
+  },
+  "evaluation": {
+    "scoring": {
+      "tests": 0.5,
+      "semantic_requirements": 0.25,
+      "diff_quality": 0.1,
+      "cost_efficiency": 0.1,
+      "constraints": 0.05
+    }
+  },
+  "metadata": {
+    "source": "manual_cli",
+    "source_prompt_file": "docs/specs/16-spec-catalog-and-suite-reporting.md"
+  }
+}
