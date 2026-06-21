@@ -5,7 +5,7 @@
   "specs": [
     {
       "id": "escape-prompt",
-      "path": "features/escape-prompt/benchmark.json"
+      "path": "cases/escape-prompt/benchmark.json"
     }
   ]
 }

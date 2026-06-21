@@ -237,7 +237,7 @@ process.stdout.write(process.argv[3] + " ok\\n");
         id: "validation-cli-001",
         name: "Validation CLI",
         version: "1.0.0",
-        category: "smoke",
+        category: "test",
         repo: {
           url: "file:///tmp/bmh/validation-cli",
           commit: "abc123",

@@ -65,11 +65,25 @@ describe("spec authoring inference", () => {
       includeInSuite: false
     });
   });
+
+  test("generates a stable default spec identity from historic personality names", async () => {
+    const { generateDefaultSpecIdentity } = await loadAuthoringHelpers();
+
+    expect(generateDefaultSpecIdentity(0)).toEqual({
+      id: "ada-lovelace-case",
+      name: "Ada Lovelace Case"
+    });
+    expect(generateDefaultSpecIdentity(1)).toEqual({
+      id: "alan-turing-case",
+      name: "Alan Turing Case"
+    });
+  });
 });
 
 async function loadAuthoringHelpers(): Promise<{
   inferSpecIdFromPromptPath: (path: string) => string;
   inferSpecNameFromMarkdown: (markdown: string, promptPath?: string) => string;
+  generateDefaultSpecIdentity: (seed?: number) => { id: string; name: string };
   mergeSpecAuthoringDefaults: (input: {
     promptPath: string;
     promptMarkdown: string;
@@ -82,6 +96,7 @@ async function loadAuthoringHelpers(): Promise<{
   return {
     inferSpecIdFromPromptPath: requireFunction(module, "inferSpecIdFromPromptPath"),
     inferSpecNameFromMarkdown: requireFunction(module, "inferSpecNameFromMarkdown"),
+    generateDefaultSpecIdentity: requireFunction(module, "generateDefaultSpecIdentity"),
     mergeSpecAuthoringDefaults: requireFunction(module, "mergeSpecAuthoringDefaults")
   };
 }

@@ -4,6 +4,17 @@ import { HarnessProviderSchema } from "../events/normalized-event.js";
 
 const NonEmptyStringSchema = z.string().min(1);
 const CommandListSchema = z.array(NonEmptyStringSchema);
+export const BenchmarkCategorySchema = z.enum([
+  "feature",
+  "bugfix",
+  "refactor",
+  "performance",
+  "security",
+  "test",
+  "docs",
+  "maintenance",
+  "other"
+]);
 
 const RepoSchema = z.object({
   url: NonEmptyStringSchema,
@@ -53,7 +64,7 @@ export const BenchmarkSchema = z.object({
   id: NonEmptyStringSchema,
   name: NonEmptyStringSchema,
   version: NonEmptyStringSchema,
-  category: NonEmptyStringSchema,
+  category: BenchmarkCategorySchema,
   difficulty: NonEmptyStringSchema.optional(),
   tags: z.array(NonEmptyStringSchema).optional(),
   harnesses: z.array(HarnessProviderSchema).optional(),
@@ -97,7 +108,7 @@ export const SpecCatalogSchema = z.object({
   specs: z.array(SpecCatalogReferenceSchema),
   defaults: z.object({
     repo_path: NonEmptyStringSchema.optional(),
-    category: NonEmptyStringSchema.optional(),
+    category: BenchmarkCategorySchema.optional(),
     trials: z.number().int().positive().optional(),
     harnesses: z.array(HarnessProviderSchema).optional(),
     workspace_root: NonEmptyStringSchema.optional(),
@@ -109,6 +120,7 @@ export const SpecCatalogSchema = z.object({
 });
 
 export type Benchmark = z.infer<typeof BenchmarkSchema>;
+export type BenchmarkCategory = z.infer<typeof BenchmarkCategorySchema>;
 export type SpecCatalog = z.infer<typeof SpecCatalogSchema>;
 export type SpecCatalogReference = z.infer<typeof SpecCatalogReferenceSchema>;
 

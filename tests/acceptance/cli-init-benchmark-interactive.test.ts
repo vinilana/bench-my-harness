@@ -14,8 +14,6 @@ describe("CLI benchmark init interactive mode", () => {
 
     const exitCode = await runCli(["node", "bench-my-harness", "benchmark", "init", "--output", outputPath], {
       stdin: interactiveAnswers([
-        "interactive-001",
-        "Interactive benchmark",
         "feature",
         "repo",
         "file:///workspace/app",
@@ -37,9 +35,10 @@ describe("CLI benchmark init interactive mode", () => {
 
     const generated = BenchmarkSchema.parse(JSON.parse(await readFile(outputPath, "utf8")));
     expect(exitCode).toBe(0);
-    expect(output.stdout()).toContain("Benchmark id");
+    expect(output.stdout()).not.toContain("Benchmark id");
     expect(generated).toMatchObject({
-      id: "interactive-001",
+      id: "ada-lovelace-case",
+      name: "Ada Lovelace Case",
       repo: {
         url: "file:///workspace/app",
         commit: "abc123",
@@ -62,8 +61,6 @@ describe("CLI benchmark init interactive mode", () => {
 
     const exitCode = await runCli(["node", "bench-my-harness", "benchmark", "init", "--output", outputPath], {
       stdin: interactiveAnswers([
-        "interactive-prompt-file-001",
-        "Interactive prompt file",
         "feature",
         "fixture",
         "fixtures/app",
@@ -100,8 +97,6 @@ describe("CLI benchmark init interactive mode", () => {
 
     const exitCode = await runCli(["node", "bench-my-harness", "benchmark", "init", "--output", outputPath], {
       stdin: interactiveAnswers([
-        "interactive-repo-path-001",
-        "Interactive repo path",
         "feature",
         "repo",
         ".",
@@ -142,8 +137,6 @@ describe("CLI benchmark init interactive mode", () => {
 
     const exitCode = await runCli(["node", "bench-my-harness", "benchmark", "init", "--output", outputPath], {
       stdin: interactiveAnswers([
-        "interactive-detected-001",
-        "Interactive detected",
         "feature",
         "repo",
         ".",
@@ -176,8 +169,6 @@ describe("CLI benchmark init interactive mode", () => {
 
     const exitCode = await runCli(["node", "bench-my-harness", "benchmark", "init", "--output", outputPath], {
       stdin: interactiveAnswers([
-        "interactive-manual-001",
-        "Interactive manual",
         "feature",
         "repo",
         ".",
@@ -212,8 +203,6 @@ describe("CLI benchmark init interactive mode", () => {
     const output = createOutput();
     const labels: string[] = [];
     const answers = [
-      "question-provider-001",
-      "Question provider benchmark",
       "feature",
       "repo",
       "file:///workspace/app",
@@ -247,9 +236,10 @@ describe("CLI benchmark init interactive mode", () => {
 
     const generated = BenchmarkSchema.parse(JSON.parse(await readFile(outputPath, "utf8")));
     expect(exitCode).toBe(0);
-    expect(labels[0]).toBe("Benchmark id");
+    expect(labels[0]).toBe("Category");
     expect(generated).toMatchObject({
-      id: "question-provider-001",
+      id: "ada-lovelace-case",
+      name: "Ada Lovelace Case",
       prompt: {
         text: "Implement from question provider."
       }

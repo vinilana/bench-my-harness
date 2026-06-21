@@ -166,9 +166,9 @@ becomes:
 Project Command Generation Spec
 ```
 
-## Backward Spec UX
+## Generated Git Case UX
 
-Backward Git authoring should also use defaults:
+Generated Git authoring should also use defaults:
 
 ```bash
 bench-my-harness add --from-git \
@@ -178,17 +178,18 @@ bench-my-harness add --from-git \
 
 When `--id` and `--name` are omitted:
 
-- `id` is derived from commit subject or changed paths;
-- `name` is derived from commit subject;
+- `id` and `name` come from deterministic generated defaults;
 - `category`, commands, and suite inclusion come from defaults.
 
-Generated backward specs still require review and must keep:
+Generated Git cases must keep source and bias metadata:
 
 ```json
 {
   "metadata": {
-    "source": "backward_git_draft",
-    "review_status": "needs_human_review"
+    "source": "generated_git",
+    "generation_mode": "git_evidence",
+    "prompt_mode": "behavior_summary",
+    "bias_profile": "generated_from_history"
   }
 }
 ```
@@ -351,7 +352,7 @@ npm run build
 ## Risks and Constraints
 
 - Do not hide benchmark contracts. Generated `benchmark.json` files must remain explicit.
-- Do not infer `base_ref` or `golden_ref` for forward specs unless the user provides them or uses Git backfill.
+- Do not infer `base_ref` or `golden_ref` for written specs unless the user provides them or uses generated Git cases.
 - Do not call real Codex or Claude Code from `smoke`.
 - Do not weaken path traversal protections.
 - Do not silently overwrite addd from previous prompts.

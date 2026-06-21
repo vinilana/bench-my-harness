@@ -24,4 +24,33 @@ describe("benchmark schema", () => {
       })
     ).toThrow();
   });
+
+  test("accepts only guided benchmark categories", () => {
+    expect(
+      BenchmarkSchema.parse({
+        ...validBenchmark,
+        category: "bugfix"
+      }).category
+    ).toBe("bugfix");
+
+    expect(() =>
+      BenchmarkSchema.parse({
+        ...validBenchmark,
+        category: "migration"
+      })
+    ).toThrow();
+  });
+
+  test("allows other category with an optional detail in metadata", () => {
+    const benchmark = BenchmarkSchema.parse({
+      ...validBenchmark,
+      category: "other",
+      metadata: {
+        category_detail: "migration"
+      }
+    });
+
+    expect(benchmark.category).toBe("other");
+    expect(benchmark.metadata?.category_detail).toBe("migration");
+  });
 });

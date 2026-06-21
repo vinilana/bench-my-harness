@@ -1,3 +1,5 @@
+import { generateDefaultSpecIdentity } from "../../../domain/benchmark/spec-catalog.js";
+
 export interface BenchmarkAuthoringCommand {
   readonly id: string;
   readonly name: string;
@@ -42,8 +44,7 @@ export class InteractiveBenchmarkAuthoring {
   }
 
   public async collect(): Promise<BenchmarkAuthoringCommand> {
-    const id = await this.required("Benchmark id");
-    const name = await this.required("Name");
+    const identity = generateDefaultSpecIdentity();
     const category = await this.required("Category");
     const source = (await this.required("Source (repo or fixture)")).toLowerCase();
 
@@ -87,8 +88,8 @@ export class InteractiveBenchmarkAuthoring {
     const semanticRequirements = parseList(await this.ask("Semantic requirements"));
 
     return {
-      id,
-      name,
+      id: identity.id,
+      name: identity.name,
       category,
       repoUrl,
       fixturePath,

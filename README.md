@@ -41,8 +41,8 @@ BMH is being built in phases. The current v1 foundation is focused on a local, r
 - Per-trial artifact finalization with `usage.json`, `artifact-index.json`, process diagnostics, hooks, transcripts, diffs, and validation output.
 - JSON and Markdown report export with redaction by default.
 - Local HTTP ingest with HMAC, timestamp, nonce, provider, and payload-size checks.
-- Local `.bmh/specs` catalogs for benchmark suites built from feature specs.
-- CLI spec authoring, including backward Git draft generation and capped backfill.
+- Local `.bmh/specs` catalogs for benchmark suites built from written spec cases.
+- CLI spec authoring, including generated Git cases as a secondary option when written specs are unavailable.
 - Static redacted `report.html` generation for suite runs, with filters, rankings, charts, usage coverage, artifact integrity, and harness comparison by time, cost, and token efficiency.
 
 ### Future phases
@@ -429,13 +429,13 @@ node ./dist/adapters/inbound/cli/main.js import "docs/specs/*.md" \
 This writes:
 
 ```text
-.bmh/specs/features/login-validation/spec.md
-.bmh/specs/features/login-validation/benchmark.json
+.bmh/specs/cases/login-validation/spec.md
+.bmh/specs/cases/login-validation/benchmark.json
 ```
 
-### 8. Create backward specs from Git history
+### 8. Create generated Git cases from Git history
 
-For features that already exist, create a review-needed backward draft from Git evidence:
+Prefer written spec cases when you have product requirements. When you do not, create generated Git cases from historical repository changes:
 
 ```bash
 node ./dist/adapters/inbound/cli/main.js add --from-git \
@@ -449,9 +449,9 @@ node ./dist/adapters/inbound/cli/main.js add --from-git \
   --include-in-suite
 ```
 
-BMH records changed files and commit evidence, but marks the generated spec as a draft with `review_status = "needs_human_review"`.
+BMH records changed files and commit evidence in `benchmark.json` metadata, but the default prompt avoids exposing commit refs or changed-file lists to the harness. Generated Git cases are useful fallback benchmarks, while written cases remain the higher-quality signal.
 
-To create multiple drafts from a commit range:
+To create multiple generated cases from a commit range:
 
 ```bash
 node ./dist/adapters/inbound/cli/main.js add --from-git \
@@ -459,7 +459,7 @@ node ./dist/adapters/inbound/cli/main.js add --from-git \
   --range main~25..main
 ```
 
-`add --from-git` creates at most `25` drafts by default. Override this with `--limit <count>`. Drafts are not added to `suite.json` unless `--include-in-suite` is provided.
+`add --from-git` creates at most `25` generated Git cases by default. Override this with `--limit <count>`. Generated cases are not added to `suite.json` unless `--include-in-suite` is provided.
 
 ### 9. Validate and run a spec suite locally
 

@@ -5,7 +5,7 @@
   "specs": [
     {
       "id": "benchmark-authoring",
-      "path": "features/benchmark-authoring/benchmark.json",
+      "path": "cases/benchmark-authoring/benchmark.json",
       "tags": [
         "cli",
         "benchmark-authoring"
@@ -13,7 +13,7 @@
     },
     {
       "id": "benchmark-prompt-files",
-      "path": "features/benchmark-prompt-files/benchmark.json",
+      "path": "cases/benchmark-prompt-files/benchmark.json",
       "tags": [
         "prompt-file",
         "benchmark-authoring"
@@ -21,7 +21,7 @@
     },
     {
       "id": "project-command-generation",
-      "path": "features/project-command-generation/benchmark.json",
+      "path": "cases/project-command-generation/benchmark.json",
       "tags": [
         "cli",
         "command-generation"
@@ -29,7 +29,7 @@
     },
     {
       "id": "spec-catalog-suite-reporting",
-      "path": "features/spec-catalog-suite-reporting/benchmark.json",
+      "path": "cases/spec-catalog-suite-reporting/benchmark.json",
       "tags": [
         "spec-catalog",
         "reporting"

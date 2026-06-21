@@ -53,7 +53,7 @@ export async function createSpec19Workspace(input: {
   const storeRoot = join(cwd, ".bmh", "runs");
   const specId = input.specId ?? "project-command-generation";
   const trialId = `${specId}_codex_trial_1`;
-  const featureDir = join(catalogRoot, "features", specId);
+  const featureDir = join(catalogRoot, "cases", specId);
   const prompt = input.prompt ?? "Generate the project commands without leaking secrets.";
 
   await mkdir(featureDir, { recursive: true });
@@ -64,7 +64,7 @@ export async function createSpec19Workspace(input: {
         id: "spec19-real-harness-suite",
         name: "Spec 19 real harness suite",
         version: "1.0.0",
-        specs: [{ id: specId, path: `features/${specId}/benchmark.json`, tags: ["spec19"] }],
+        specs: [{ id: specId, path: `cases/${specId}/benchmark.json`, tags: ["spec19"] }],
         defaults: {
           trials: input.trials ?? 1,
           harnesses: input.harnesses ?? ["codex"],

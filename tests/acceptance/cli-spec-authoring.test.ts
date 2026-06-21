@@ -73,8 +73,8 @@ describe("CLI spec authoring", () => {
 
     expect(cliResult(exitCode, output)).toMatchObject({ exitCode: 0, stderr: "" });
 
-    const specPath = join(catalogRoot, "features/login-validation/spec.md");
-    const benchmarkPath = join(catalogRoot, "features/login-validation/benchmark.json");
+    const specPath = join(catalogRoot, "cases/login-validation/spec.md");
+    const benchmarkPath = join(catalogRoot, "cases/login-validation/benchmark.json");
     const suitePath = join(catalogRoot, "suite.json");
     const benchmark = BenchmarkSchema.parse(JSON.parse(await readFile(benchmarkPath, "utf8")));
     const suite = SpecCatalogSchema.parse(JSON.parse(await readFile(suitePath, "utf8")));
@@ -98,14 +98,14 @@ describe("CLI spec authoring", () => {
     expect(suite.specs).toEqual([
       {
         id: "login-validation",
-        path: "features/login-validation/benchmark.json",
+        path: "cases/login-validation/benchmark.json",
         tags: ["auth"]
       }
     ]);
     expect(output.stdout()).toMatch(/spec (created|written): .*login-validation|spec written: login-validation/s);
   });
 
-  test("add with no arguments collects interactive answers and writes a feature spec", async () => {
+  test("add with no arguments collects interactive answers and writes a generated id and default name", async () => {
     const dir = await mkdtemp(join(tmpdir(), "bmh-specs-add-interactive-"));
     const output = createOutput();
 
@@ -113,8 +113,6 @@ describe("CLI spec authoring", () => {
       ...createRuntime(output),
       cwd: dir,
       stdin: interactiveAnswers([
-        "interactive-add",
-        "Interactive Add",
         "feature",
         "repo",
         ".",
@@ -135,16 +133,16 @@ describe("CLI spec authoring", () => {
 
     expect(cliResult(exitCode, output)).toMatchObject({ exitCode: 0, stderr: "" });
 
-    const specPath = join(dir, ".bmh/specs/features/interactive-add/spec.md");
-    const benchmarkPath = join(dir, ".bmh/specs/features/interactive-add/benchmark.json");
+    const specPath = join(dir, ".bmh/specs/cases/ada-lovelace-case/spec.md");
+    const benchmarkPath = join(dir, ".bmh/specs/cases/ada-lovelace-case/benchmark.json");
     const suitePath = join(dir, ".bmh/specs/suite.json");
     const benchmark = BenchmarkSchema.parse(JSON.parse(await readFile(benchmarkPath, "utf8")));
     const suite = SpecCatalogSchema.parse(JSON.parse(await readFile(suitePath, "utf8")));
 
-    expect(await readFile(specPath, "utf8")).toBe("# Interactive Add\n\nImplement the interactive spec.\n");
+    expect(await readFile(specPath, "utf8")).toBe("# Ada Lovelace Case\n\nImplement the interactive spec.\n");
     expect(benchmark).toMatchObject({
-      id: "interactive-add",
-      name: "Interactive Add",
+      id: "ada-lovelace-case",
+      name: "Ada Lovelace Case",
       category: "feature",
       repo: {
         url: pathToFileURL(resolve(dir, ".")).href,
@@ -161,14 +159,15 @@ describe("CLI spec authoring", () => {
       }
     });
     expect(suite.specs).toContainEqual({
-      id: "interactive-add",
-      path: "features/interactive-add/benchmark.json"
+      id: "ada-lovelace-case",
+      path: "cases/ada-lovelace-case/benchmark.json"
     });
-    expect(output.stdout()).toContain("Benchmark id");
+    expect(output.stdout()).not.toContain("Benchmark id");
+    expect(output.stdout()).not.toContain("Name:");
     expect(output.stdout()).toContain("spec created:");
   });
 
-  test("add --from-git writes deterministic backward draft evidence", async () => {
+  test("add --from-git writes a generated Git case without leaking commit refs into the prompt", async () => {
     const dir = await mkdtemp(join(tmpdir(), "bmh-specs-from-git-"));
     const catalogRoot = join(dir, ".bmh/specs");
     const repo = await createFeatureRepo(dir);
@@ -204,15 +203,17 @@ describe("CLI spec authoring", () => {
 
     expect(cliResult(exitCode, output)).toMatchObject({ exitCode: 0, stderr: "" });
 
-    const spec = await readFile(join(catalogRoot, "features/login-validation/spec.md"), "utf8");
+    const spec = await readFile(join(catalogRoot, "generated/git/login-validation/spec.md"), "utf8");
     const benchmark = BenchmarkSchema.parse(
-      JSON.parse(await readFile(join(catalogRoot, "features/login-validation/benchmark.json"), "utf8"))
+      JSON.parse(await readFile(join(catalogRoot, "generated/git/login-validation/benchmark.json"), "utf8"))
     );
 
-    expect(spec).toContain("Re-implement the behavior introduced between");
-    expect(spec).toContain("TODO: Review");
-    expect(spec).toContain("src/auth/validation.ts");
-    expect(spec).toContain("tests/auth/validation.test.ts");
+    expect(spec).not.toContain(baseRef);
+    expect(spec).not.toContain(goldenRef);
+    expect(spec).not.toContain("Re-implement the behavior introduced between");
+    expect(spec).not.toContain("src/auth/validation.ts");
+    expect(spec).not.toContain("tests/auth/validation.test.ts");
+    expect(spec).toContain("## Expected Behavior");
     expect(benchmark).toMatchObject({
       id: "login-validation",
       repo: {
@@ -225,17 +226,54 @@ describe("CLI spec authoring", () => {
         required_files_changed: ["src/auth/validation.ts", "tests/auth/validation.test.ts"]
       },
       metadata: {
-        source: "backward_git_draft",
-        review_status: "needs_human_review"
+        source: "generated_git",
+        generation_mode: "git_evidence",
+        prompt_mode: "behavior_summary",
+        bias_profile: "generated_from_history"
       }
     });
-    expect(output.stdout()).toMatch(/backward .*draft .*login-validation|backward .*draft .*benchmark\.json/s);
+    expect(output.stdout()).toMatch(/generated git case .*login-validation|generated git case .*benchmark\.json/s);
   });
 
-  test("add --from-git --range defaults to 25 drafts when no limit is provided", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "bmh-specs-backfill-"));
+  test("add --from-git does not include generated cases in the suite from defaults", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "bmh-specs-generated-suite-default-"));
     const catalogRoot = join(dir, ".bmh/specs");
-    const repo = await createBackfillRepo(dir, 27);
+    const repo = await createFeatureRepo(dir);
+    const baseRef = await git(repo.path, ["rev-parse", "HEAD~1"]);
+    const goldenRef = await git(repo.path, ["rev-parse", "HEAD"]);
+    const output = createOutput();
+    await runCli(["node", "bench-my-harness", "init", "--catalog-root", catalogRoot, "--include-in-suite"], createRuntime(output));
+
+    const exitCode = await runCli(
+      [
+        "node",
+        "bench-my-harness",
+        "add",
+        "--from-git",
+        "--catalog-root",
+        catalogRoot,
+        "--repo-path",
+        repo.path,
+        "--base-ref",
+        baseRef,
+        "--golden-ref",
+        goldenRef,
+        "--category",
+        "bugfix"
+      ],
+      createRuntime(output)
+    );
+
+    const suite = SpecCatalogSchema.parse(JSON.parse(await readFile(join(catalogRoot, "suite.json"), "utf8")));
+
+    expect(cliResult(exitCode, output)).toMatchObject({ exitCode: 0, stderr: "" });
+    expect(suite.specs).toEqual([]);
+  });
+
+  test("add --from-git --range defaults to 25 generated Git cases when no limit is provided", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "bmh-specs-generated-"));
+    const catalogRoot = join(dir, ".bmh/specs");
+    const repo = await createGeneratedGitRepo(dir, 27);
     const output = createOutput();
     await runCli(["node", "bench-my-harness", "init", "--catalog-root", catalogRoot], createRuntime(output));
 
@@ -256,18 +294,18 @@ describe("CLI spec authoring", () => {
 
     expect(cliResult(exitCode, output)).toMatchObject({ exitCode: 0, stderr: "" });
 
-    const drafts = await readdir(join(catalogRoot, "backfill"));
+    const generated = await readdir(join(catalogRoot, "generated/git"));
     const suite = SpecCatalogSchema.parse(JSON.parse(await readFile(join(catalogRoot, "suite.json"), "utf8")));
 
-    expect(drafts).toHaveLength(25);
+    expect(generated).toHaveLength(25);
     expect(suite.specs).toEqual([]);
-    expect(output.stdout()).toMatch(/backfill|backward spec drafts/s);
+    expect(output.stdout()).toMatch(/generated git cases/s);
     expect(output.stdout()).toContain("25");
   });
 
   test("add --from-git --range rejects non-positive limits", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "bmh-specs-backfill-limit-"));
-    const repo = await createBackfillRepo(dir, 1);
+    const dir = await mkdtemp(join(tmpdir(), "bmh-specs-generated-limit-"));
+    const repo = await createGeneratedGitRepo(dir, 1);
     const output = createOutput();
 
     const exitCode = await runCli(
@@ -307,17 +345,17 @@ async function createFeatureRepo(parent: string): Promise<{ path: string }> {
   return { path: repo };
 }
 
-async function createBackfillRepo(parent: string, featureCount: number): Promise<{
+async function createGeneratedGitRepo(parent: string, featureCount: number): Promise<{
   path: string;
   baseRef: string;
   headRef: string;
 }> {
-  const repo = join(parent, "backfill-repo");
+  const repo = join(parent, "generated-git-repo");
   await mkdir(repo, { recursive: true });
   await git(repo, ["init"]);
   await git(repo, ["config", "user.email", "bench@example.com"]);
   await git(repo, ["config", "user.name", "Bench Test"]);
-  await writeFile(join(repo, "README.md"), "# Backfill fixture\n", "utf8");
+  await writeFile(join(repo, "README.md"), "# Generated Git fixture\n", "utf8");
   await git(repo, ["add", "."]);
   await git(repo, ["commit", "-m", "Initial fixture"]);
   const baseRef = await git(repo, ["rev-parse", "HEAD"]);

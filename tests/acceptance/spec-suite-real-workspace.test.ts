@@ -127,7 +127,7 @@ function loadedCatalog(
       id: "real-git-suite",
       name: "Real git suite",
       version: "1.0.0",
-      specs: specIds.map((id) => ({ id, path: `features/${id}/benchmark.json`, tags: [id] })),
+      specs: specIds.map((id) => ({ id, path: `cases/${id}/benchmark.json`, tags: [id] })),
       defaults: {
         trials: 2,
         harnesses: ["codex", "claude_code"],
@@ -143,8 +143,8 @@ function featureSpec(id: string, repoUrl: string, baseRef: string, goldenRef: st
   return {
     id,
     tags: [id],
-    catalogPath: `features/${id}/benchmark.json`,
-    featureDirectory: `.bmh/specs/features/${id}`,
+    catalogPath: `cases/${id}/benchmark.json`,
+    caseDirectory: `.bmh/specs/cases/${id}`,
     promptMarkdown: `# ${id}`,
     benchmark: {
       id,

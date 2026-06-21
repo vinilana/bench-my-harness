@@ -80,7 +80,7 @@ describe("CLI spec catalog and suite execution", () => {
       specs: Array<{ id: string; path: string }>;
     };
     const benchmark = JSON.parse(
-      await readFile(join(cwd, ".bmh", "specs", "features", "login-validation", "benchmark.json"), "utf8")
+      await readFile(join(cwd, ".bmh", "specs", "cases", "login-validation", "benchmark.json"), "utf8")
     ) as {
       repo: { base_ref: string; golden_ref: string };
       prompt: { file: string };
@@ -94,7 +94,7 @@ describe("CLI spec catalog and suite execution", () => {
     expect(suite.specs).toEqual([
       {
         id: "login-validation",
-        path: "features/login-validation/benchmark.json"
+        path: "cases/login-validation/benchmark.json"
       }
     ]);
     expect(benchmark.repo).toMatchObject({ base_ref: "base123", golden_ref: "golden456" });
@@ -122,7 +122,7 @@ describe("CLI spec catalog and suite execution", () => {
     ))).resolves.toBeDefined();
   });
 
-  test("add --from-git creates a review-needed backward draft from local git evidence", async () => {
+  test("add --from-git creates a generated Git case from local git evidence", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "bmh-cli-spec-git-"));
     const output = createOutput();
 
@@ -163,9 +163,9 @@ describe("CLI spec catalog and suite execution", () => {
       { cwd, stdout: output.stdout, stderr: output.stderr }
     );
 
-    const spec = await readFile(join(cwd, ".bmh", "specs", "features", "feature-validation", "spec.md"), "utf8");
+    const spec = await readFile(join(cwd, ".bmh", "specs", "generated", "git", "feature-validation", "spec.md"), "utf8");
     const benchmark = JSON.parse(
-      await readFile(join(cwd, ".bmh", "specs", "features", "feature-validation", "benchmark.json"), "utf8")
+      await readFile(join(cwd, ".bmh", "specs", "generated", "git", "feature-validation", "benchmark.json"), "utf8")
     ) as {
       expected_output: { required_files_changed: string[] };
       metadata: Record<string, unknown>;
@@ -173,17 +173,19 @@ describe("CLI spec catalog and suite execution", () => {
     };
 
     expect(exitCode).toBe(0);
-    expect(spec).toContain("TODO: Review and replace this section");
-    expect(spec).toContain("src/feature.ts");
-    expect(spec).toContain("src/feature.test.ts");
+    expect(spec).toContain("## Expected Behavior");
+    expect(spec).not.toContain(baseRef.trim());
+    expect(spec).not.toContain(goldenRef.trim());
+    expect(spec).not.toContain("src/feature.ts");
+    expect(spec).not.toContain("src/feature.test.ts");
     expect(benchmark.expected_output.required_files_changed).toEqual(["src/feature.test.ts", "src/feature.ts"]);
-    expect(benchmark.metadata.source).toBe("backward_git_draft");
-    expect(benchmark.metadata.review_status).toBe("needs_human_review");
+    expect(benchmark.metadata.source).toBe("generated_git");
+    expect(benchmark.metadata.prompt_mode).toBe("behavior_summary");
     expect(output.stderr()).toBe("");
   });
 
-  test("add --from-git --range rejects non-positive limits without writing drafts", async () => {
-    const cwd = await mkdtemp(join(tmpdir(), "bmh-cli-spec-backfill-"));
+  test("add --from-git --range rejects non-positive limits without writing generated cases", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "bmh-cli-spec-generated-"));
     const output = createOutput();
 
     const exitCode = await runCli(

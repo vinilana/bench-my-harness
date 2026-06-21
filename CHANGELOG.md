@@ -6,6 +6,14 @@ This project follows semantic versioning during the v0 phase: minor versions may
 
 ## [Unreleased]
 
+### Changed
+
+- Renamed written spec catalog entries from `.bmh/specs/features/<id>` to `.bmh/specs/cases/<id>`.
+- Reframed Git-history authoring from backfill/drafts to generated Git cases under `.bmh/specs/generated/git/<id>`.
+- Added guided benchmark categories with `other` as an explicit fallback.
+- Generated default benchmark ids and names when users do not provide custom values.
+- Updated generated Git prompts to avoid exposing commit refs and changed-file lists by default.
+
 ## [0.2.0] - 2026-06-21
 
 ### Changed
