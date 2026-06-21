@@ -6,7 +6,7 @@
   "specs": [
     {
       "id": "login-validation",
-      "path": "features/login-validation/benchmark.json",
+      "path": "cases/login-validation/benchmark.json",
       "tags": ["auth", "bugfix"]
     }
   ],

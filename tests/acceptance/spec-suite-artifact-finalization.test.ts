@@ -194,7 +194,7 @@ function loadedCatalog(input: { withValidationCommands: boolean }): LoadedSpecCa
       id: "artifact-suite",
       name: "Artifact suite",
       version: "1.0.0",
-      specs: [{ id: "artifact-integrity", path: "features/artifact-integrity/benchmark.json", tags: ["artifacts"] }],
+      specs: [{ id: "artifact-integrity", path: "cases/artifact-integrity/benchmark.json", tags: ["artifacts"] }],
       defaults: {
         trials: 1,
         harnesses: ["codex"],
@@ -206,8 +206,8 @@ function loadedCatalog(input: { withValidationCommands: boolean }): LoadedSpecCa
       {
         id: "artifact-integrity",
         tags: ["artifacts"],
-        catalogPath: "features/artifact-integrity/benchmark.json",
-        featureDirectory: ".bmh/specs/features/artifact-integrity",
+        catalogPath: "cases/artifact-integrity/benchmark.json",
+        caseDirectory: ".bmh/specs/cases/artifact-integrity",
         promptMarkdown: "# Artifact integrity",
         benchmark: {
           id: "artifact-integrity",

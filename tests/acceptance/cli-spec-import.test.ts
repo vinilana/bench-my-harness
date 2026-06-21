@@ -34,20 +34,20 @@ describe("CLI spec import", () => {
 
     const suite = await readJson(join(cwd, ".bmh", "specs", "suite.json"));
     const firstBenchmark = await readJson(
-      join(cwd, ".bmh", "specs", "features", "project-command-generation", "benchmark.json")
+      join(cwd, ".bmh", "specs", "cases", "project-command-generation", "benchmark.json")
     );
     const secondBenchmark = await readJson(
-      join(cwd, ".bmh", "specs", "features", "spec-catalog-reporting", "benchmark.json")
+      join(cwd, ".bmh", "specs", "cases", "spec-catalog-reporting", "benchmark.json")
     );
 
     expect(suite.specs).toEqual([
       {
         id: "project-command-generation",
-        path: "features/project-command-generation/benchmark.json"
+        path: "cases/project-command-generation/benchmark.json"
       },
       {
         id: "spec-catalog-reporting",
-        path: "features/spec-catalog-reporting/benchmark.json"
+        path: "cases/spec-catalog-reporting/benchmark.json"
       }
     ]);
     expect(firstBenchmark).toMatchObject({

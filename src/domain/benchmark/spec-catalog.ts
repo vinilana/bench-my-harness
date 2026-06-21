@@ -1,16 +1,16 @@
 import { z } from "zod";
 
-import { BenchmarkSchema, SpecCatalogSchema, type Benchmark, type SpecCatalog } from "./benchmark-schema.js";
+import { BenchmarkSchema, SpecCatalogSchema, type Benchmark, type BenchmarkCategory, type SpecCatalog } from "./benchmark-schema.js";
 
 const SAFE_SEGMENT_PATTERN = /^[A-Za-z0-9._-]+$/;
 
-export const SPEC_BACKFILL_DEFAULT_LIMIT = 25;
+export const SPEC_GENERATED_GIT_DEFAULT_LIMIT = 25;
 
 export interface LoadedFeatureSpec {
   readonly id: string;
   readonly tags: readonly string[];
   readonly catalogPath: string;
-  readonly featureDirectory: string;
+  readonly caseDirectory: string;
   readonly benchmark: Benchmark;
   readonly promptMarkdown: string;
 }
@@ -32,7 +32,7 @@ export interface CreateSpecCatalogInput {
   readonly workspaceRoot?: string;
   readonly strictTelemetry?: boolean;
   readonly repoPath?: string;
-  readonly category?: string;
+  readonly category?: BenchmarkCategory;
   readonly setupCommands?: readonly string[];
   readonly testCommands?: readonly string[];
   readonly includeInSuite?: boolean;
@@ -41,7 +41,7 @@ export interface CreateSpecCatalogInput {
 export interface FeatureSpecAuthoringInput {
   readonly id: string;
   readonly name: string;
-  readonly category: string;
+  readonly category: BenchmarkCategory;
   readonly difficulty?: string;
   readonly tags?: readonly string[];
   readonly repoUrl: string;
@@ -80,10 +80,10 @@ export interface GitHistoryEvidence {
   readonly diffSummary?: string;
 }
 
-export interface BackwardSpecDraftInput {
+export interface GeneratedGitCaseInput {
   readonly id: string;
   readonly name: string;
-  readonly category: string;
+  readonly category: BenchmarkCategory;
   readonly repoUrl: string;
   readonly evidence: GitHistoryEvidence;
   readonly setupCommands?: readonly string[];
@@ -115,7 +115,7 @@ export function createSpecCatalog(input: CreateSpecCatalogInput = {}): SpecCatal
 }
 
 export function createFeatureSpecDraft(input: FeatureSpecAuthoringInput): FeatureSpecDraft {
-  const directory = featureDirectoryFor(input.id);
+  const directory = caseDirectoryFor(input.id);
   const specPath = `${directory}/spec.md`;
   const benchmarkPath = `${directory}/benchmark.json`;
   const tags = [...(input.tags ?? [])];
@@ -175,33 +175,29 @@ export function createFeatureSpecDraft(input: FeatureSpecAuthoringInput): Featur
   };
 }
 
-export function createBackwardSpecDraft(input: BackwardSpecDraftInput): FeatureSpecDraft {
+export function createGeneratedGitCase(input: GeneratedGitCaseInput): FeatureSpecDraft {
   const changedFiles = [...input.evidence.changedFiles].sort();
   const inferredTags = input.tags ?? inferTagsFromFiles(changedFiles);
+  const behaviorHints = behaviorHintsFromCommitMessages(input.evidence.commitMessages);
   const promptMarkdown = [
     `# ${input.name}`,
     "",
     "## Goal",
     "",
-    `Re-implement the behavior introduced between \`${input.evidence.baseRef}\` and \`${input.evidence.goldenRef}\`.`,
-    "",
-    "## Evidence From Existing Implementation",
-    "",
-    "- Changed files:",
-    ...changedFiles.map((file) => `  - \`${file}\``),
+    "Implement the behavior described below in the current repository.",
     "",
     "## Expected Behavior",
     "",
-    "TODO: Review and replace this section with product-level requirements.",
+    ...behaviorHints,
     "",
     "## Constraints",
     "",
-    "- Preserve public API compatibility unless the historical diff proves otherwise.",
+    "- Preserve public API compatibility unless the requested behavior requires a change.",
     "- Prefer the smallest change that satisfies validation commands.",
     ""
   ].join("\n");
 
-  return createFeatureSpecDraft({
+  const draft = createFeatureSpecDraft({
     id: input.id,
     name: input.name,
     category: input.category,
@@ -213,16 +209,20 @@ export function createBackwardSpecDraft(input: BackwardSpecDraftInput): FeatureS
     promptMarkdown,
     tags: inferredTags,
     requiredFilesChanged: changedFiles,
-    semanticRequirements: ["TODO: Human review required for product-level requirements."],
     timeoutSeconds: input.timeoutSeconds,
     maxCostUsd: input.maxCostUsd,
     metadata: {
-      source: "backward_git_draft",
-      review_status: "needs_human_review",
+      source: "generated_git",
+      generation_mode: "git_evidence",
+      prompt_mode: "behavior_summary",
+      bias_profile: "generated_from_history",
       commit_messages: [...input.evidence.commitMessages],
+      changed_files: changedFiles,
       diff_summary: input.evidence.diffSummary
     }
   });
+
+  return relocateFeatureSpecDraft(draft, `generated/git/${input.id}`);
 }
 
 export function addSpecToCatalog(catalog: SpecCatalog, reference: FeatureSpecDraft["suiteReference"]): SpecCatalog {
@@ -251,9 +251,9 @@ export function validateSpecCatalogPath(path: string, label = "catalog path"): s
   return path;
 }
 
-export function validateBackfillLimit(limit: number | undefined): number {
+export function validateGeneratedGitLimit(limit: number | undefined): number {
   if (limit === undefined) {
-    return SPEC_BACKFILL_DEFAULT_LIMIT;
+    return SPEC_GENERATED_GIT_DEFAULT_LIMIT;
   }
 
   if (!Number.isInteger(limit) || limit <= 0) {
@@ -266,7 +266,7 @@ export function validateBackfillLimit(limit: number | undefined): number {
 export interface SpecAuthoringDefaultsInput {
   readonly id?: string;
   readonly name?: string;
-  readonly category?: string;
+  readonly category?: BenchmarkCategory;
   readonly repoPath?: string;
   readonly setupCommands?: readonly string[];
   readonly testCommands?: readonly string[];
@@ -276,7 +276,7 @@ export interface SpecAuthoringDefaultsInput {
 export interface ResolvedSpecAuthoringDefaults {
   readonly id: string;
   readonly name: string;
-  readonly category: string;
+  readonly category: BenchmarkCategory;
   readonly repoPath: string;
   readonly setupCommands: readonly string[];
   readonly testCommands: readonly string[];
@@ -333,9 +333,58 @@ export function mergeSpecAuthoringDefaults(input: {
   };
 }
 
-function featureDirectoryFor(id: string): string {
+export function generateDefaultSpecIdentity(seed = 0): { readonly id: string; readonly name: string } {
+  const names = [
+    "Ada Lovelace",
+    "Alan Turing",
+    "Grace Hopper",
+    "Katherine Johnson",
+    "Marie Curie",
+    "Nikola Tesla",
+    "Hypatia",
+    "Ibn Sina",
+    "Emmy Noether",
+    "Srinivasa Ramanujan"
+  ];
+  const name = `${names[Math.abs(seed) % names.length]} Case`;
+
+  return {
+    id: inferSpecIdFromPromptPath(`${name}.md`),
+    name
+  };
+}
+
+function caseDirectoryFor(id: string): string {
   validateSpecCatalogPath(id, "spec id");
-  return `features/${id}`;
+  return `cases/${id}`;
+}
+
+function relocateFeatureSpecDraft(draft: FeatureSpecDraft, directory: string): FeatureSpecDraft {
+  validateSpecCatalogPath(directory, "spec directory");
+  return {
+    ...draft,
+    directory,
+    specPath: `${directory}/spec.md`,
+    benchmarkPath: `${directory}/benchmark.json`,
+    suiteReference: {
+      ...draft.suiteReference,
+      path: `${directory}/benchmark.json`
+    }
+  };
+}
+
+function behaviorHintsFromCommitMessages(messages: readonly string[]): readonly string[] {
+  const hints = messages
+    .map((message) => message.split(/\r?\n/)[0]?.trim())
+    .filter((message): message is string => message !== undefined && message.length > 0)
+    .map((message) => `- ${sentenceCase(message)}.`);
+
+  return hints.length > 0 ? hints : ["- Implement the intended behavior for this generated benchmark case."];
+}
+
+function sentenceCase(value: string): string {
+  const trimmed = value.replace(/\.$/, "");
+  return `${trimmed.charAt(0).toUpperCase()}${trimmed.slice(1)}`;
 }
 
 function titleCase(id: string): string {

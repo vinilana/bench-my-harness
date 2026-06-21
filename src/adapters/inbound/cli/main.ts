@@ -32,20 +32,25 @@ import { ProcessGitHistoryInspector } from "../../outbound/git/process-git-histo
 import { FilesystemPromptFileReader } from "../../outbound/filesystem/filesystem-prompt-file-reader.js";
 import { FilesystemUsageCapture } from "../../outbound/usage/filesystem-usage-capture.js";
 import { FilesystemProviderTranscriptResolver } from "../../outbound/filesystem/filesystem-provider-transcript-resolver.js";
-import { BenchmarkSchema, type Benchmark } from "../../../domain/benchmark/benchmark-schema.js";
+import {
+  BenchmarkCategorySchema,
+  BenchmarkSchema,
+  type Benchmark,
+  type BenchmarkCategory
+} from "../../../domain/benchmark/benchmark-schema.js";
 import type { HarnessCommand } from "../../../domain/harnesses/harness-profile.js";
 import { ResolveBenchmarkPromptUseCase } from "../../../application/use-cases/resolve-benchmark-prompt.js";
 import { GenerateProjectCommandsUseCase } from "../../../application/use-cases/generate-project-commands.js";
 import { CreateSpecCatalogUseCase } from "../../../application/use-cases/create-spec-catalog.js";
 import { CreateFeatureSpecUseCase } from "../../../application/use-cases/create-feature-spec.js";
 import { CreateFeatureSpecFromPromptFileUseCase } from "../../../application/use-cases/create-feature-spec-from-prompt-file.js";
-import { CreateBackwardSpecDraftUseCase } from "../../../application/use-cases/create-backward-spec-draft.js";
+import { CreateGeneratedGitCaseUseCase } from "../../../application/use-cases/create-generated-git-case.js";
 import { ConfigureSpecCatalogUseCase } from "../../../application/use-cases/configure-spec-catalog.js";
 import { ImportFeatureSpecsUseCase } from "../../../application/use-cases/import-feature-specs.js";
 import { LoadSpecCatalogUseCase } from "../../../application/use-cases/load-spec-catalog.js";
 import { RunSpecSuiteUseCase } from "../../../application/use-cases/run-spec-suite.js";
 import { RunSpecSuiteSmokeUseCase } from "../../../application/use-cases/run-spec-suite-smoke.js";
-import type { SpecCatalogDefaults } from "../../../domain/benchmark/spec-catalog.js";
+import { generateDefaultSpecIdentity, type SpecCatalogDefaults } from "../../../domain/benchmark/spec-catalog.js";
 import { renderSuiteReportHtml } from "../../../domain/reports/suite-report.js";
 import { runHookCapture, type HookCaptureProvider } from "./hook-capture.js";
 import {
@@ -344,7 +349,7 @@ export function buildProgram(context: CliContext): Command {
       const harnesses = hasEntries(configureHarnessOptions) ? configureHarnessOptions.map(parseProvider) : undefined;
       const defaults: SpecCatalogDefaults = {
         repo_path: options.repoPath,
-        category: options.category,
+        category: options.category === undefined ? undefined : parseCategory(options.category),
         setup_commands: hasEntries(options.setupCommand) ? [...(options.setupCommand ?? [])] : undefined,
         test_commands: hasEntries(options.testCommand) ? [...(options.testCommand ?? [])] : undefined,
         harnesses,
@@ -394,9 +399,9 @@ export function buildProgram(context: CliContext): Command {
     .option("--base-ref <ref>", "base git ref")
     .option("--golden-ref <ref>", "golden git ref")
     .option("--prompt-file <path>", "Markdown prompt/spec file to copy into the catalog")
-    .option("--from-git", "create a backward spec draft from git evidence", false)
-    .option("--range <range>", "git revision range for multiple backward drafts")
-    .option("--limit <count>", "maximum backward drafts to create", parsePositiveInt)
+    .option("--from-git", "create a generated spec case from git evidence", false)
+    .option("--range <range>", "git revision range for multiple generated cases")
+    .option("--limit <count>", "maximum generated cases to create", parsePositiveInt)
     .option("--setup-command <command>", "setup command", collectOptionValue, [])
     .option("--test-command <command>", "validation command", collectOptionValue, [])
     .option("--tag <tag>", "spec tag", collectOptionValue, [])
@@ -416,13 +421,48 @@ export function buildProgram(context: CliContext): Command {
       const setupCommands = hasEntries(options.setupCommand) ? options.setupCommand : defaults?.setup_commands ?? [];
       const testCommands = hasEntries(options.testCommand) ? options.testCommand : defaults?.test_commands ?? [];
       const includeInSuite = options.includeInSuite ?? defaults?.include_in_suite ?? false;
-      const category = options.category ?? defaults?.category;
+      const category = options.category === undefined ? defaults?.category : parseCategory(options.category);
+
+      if (promptFile === undefined && options.fromGit !== true && hasNoManualSpecFields(options)) {
+        const command = normalizeInteractiveCommand(await collectInteractiveBenchmarkCommand(context), context.cwd);
+        if (command.repoUrl === undefined) {
+          throw new Error("add interactive mode requires a repo source; use benchmark init for fixture benchmarks");
+        }
+
+        const draft = await new CreateFeatureSpecUseCase(new FilesystemSpecCatalogStore()).execute({
+          catalogRoot,
+          repoUrl: command.repoUrl,
+          id: command.id,
+          name: command.name,
+          category: parseCategory(command.category),
+          baseRef: options.baseRef,
+          goldenRef: options.goldenRef,
+          setupCommands: command.setupCommands,
+          testCommands: command.testCommands,
+          promptMarkdown: await promptMarkdownFromInteractiveCommand(command, context.cwd),
+          constraints: command.constraints,
+          timeoutSeconds: command.timeoutSeconds,
+          maxCostUsd: command.maxCostUsd,
+          requiredFilesChanged: command.requiredFilesChanged,
+          forbiddenFilesChanged: command.forbiddenFilesChanged,
+          semanticRequirements: command.semanticRequirements,
+          metadata: {
+            source: "manual_cli",
+            source_prompt_file: command.promptFile
+          },
+          includeInSuite: options.includeInSuite ?? defaults?.include_in_suite ?? true,
+          force: options.force ?? false
+        });
+
+        context.stdout(`spec created: ${resolvePath(catalogRoot, draft.benchmarkPath)}\n`);
+        return;
+      }
 
       if (options.fromGit === true && options.range !== undefined) {
-        const drafts = await new CreateBackwardSpecDraftUseCase({
+        const drafts = await new CreateGeneratedGitCaseUseCase({
           store: new FilesystemSpecCatalogStore(),
           gitHistory: new ProcessGitHistoryInspector()
-        }).backfill({
+        }).createGeneratedGitCases({
           catalogRoot,
           repoPath,
           repoUrl,
@@ -433,12 +473,12 @@ export function buildProgram(context: CliContext): Command {
           force: options.force ?? false
         });
 
-        context.stdout(`backward git drafts created: ${drafts.length}\n`);
+        context.stdout(`generated git cases created: ${drafts.length}\n`);
         return;
       }
 
       if (options.fromGit === true) {
-        const draft = await new CreateBackwardSpecDraftUseCase({
+        const draft = await new CreateGeneratedGitCaseUseCase({
           store: new FilesystemSpecCatalogStore(),
           gitHistory: new ProcessGitHistoryInspector()
         }).execute({
@@ -447,16 +487,16 @@ export function buildProgram(context: CliContext): Command {
           repoUrl,
           id: options.id,
           name: options.name,
-          category: requiredOption(category, "--category"),
+          category: category ?? "feature",
           baseRef: requiredOption(options.baseRef, "--base-ref"),
           goldenRef: requiredOption(options.goldenRef, "--golden-ref"),
           setupCommands,
           testCommands,
-          includeInSuite,
+          includeInSuite: options.includeInSuite ?? false,
           force: options.force ?? false
         });
 
-        context.stdout(`backward git draft created: ${resolvePath(catalogRoot, draft.benchmarkPath)}\n`);
+        context.stdout(`generated git case created: ${resolvePath(catalogRoot, draft.benchmarkPath)}\n`);
         return;
       }
 
@@ -476,7 +516,7 @@ export function buildProgram(context: CliContext): Command {
           overrides: {
             id: options.id,
             name: options.name,
-            category: options.category,
+            category: options.category === undefined ? undefined : parseCategory(options.category),
             repoPath: repoPathOption,
             setupCommands: hasEntries(options.setupCommand) ? options.setupCommand : undefined,
             testCommands: hasEntries(options.testCommand) ? options.testCommand : undefined,
@@ -492,12 +532,13 @@ export function buildProgram(context: CliContext): Command {
       const promptMarkdown = promptFile
         ? await readFile(resolvePath(context.cwd, promptFile), "utf8")
         : "# Task\n\nTODO: Describe the feature behavior to implement.\n";
+      const generatedIdentity = generateDefaultSpecIdentity();
       const draft = await new CreateFeatureSpecUseCase(new FilesystemSpecCatalogStore()).execute({
         catalogRoot,
         repoUrl,
-        id: requiredOption(options.id, "--id"),
-        name: requiredOption(options.name, "--name"),
-        category: requiredOption(category, "--category"),
+        id: options.id ?? generatedIdentity.id,
+        name: options.name ?? generatedIdentity.name,
+        category: category ?? "feature",
         difficulty: options.difficulty,
         baseRef: options.baseRef,
         goldenRef: options.goldenRef,
@@ -865,11 +906,12 @@ async function commandFromTemplateOptions(options: InitBenchmarkOptions, cwd: st
   }
 
   const generatedCommands = await generatedCommandsFromTemplateOptions(options, cwd);
+  const generatedIdentity = generateDefaultSpecIdentity();
 
   return {
-    id: requiredOption(options.id, "--id"),
-    name: requiredOption(options.name, "--name"),
-    category: requiredOption(options.category, "--category"),
+    id: options.id ?? generatedIdentity.id,
+    name: options.name ?? generatedIdentity.name,
+    category: options.category === undefined ? "feature" : parseCategory(options.category),
     repoUrl: options.repoPath === undefined ? options.repoUrl : repoPathToFileUrl(cwd, options.repoPath),
     fixturePath: options.fixturePath,
     commit: options.commit,
@@ -907,6 +949,29 @@ function hasNonInteractiveAuthoringOptions(options: InitBenchmarkOptions): boole
     hasEntries(options.forbiddenFileChanged) ||
     hasEntries(options.semanticRequirement)
   );
+}
+
+function hasNoManualSpecFields(options: SpecsCreateOptions): boolean {
+  return (
+    options.id === undefined &&
+    options.name === undefined &&
+    options.category === undefined &&
+    options.difficulty === undefined &&
+    options.repoPath === undefined &&
+    options.range === undefined &&
+    options.limit === undefined &&
+    !hasEntries(options.setupCommand) &&
+    !hasEntries(options.testCommand) &&
+    !hasEntries(options.tag)
+  );
+}
+
+async function promptMarkdownFromInteractiveCommand(command: BenchmarkAuthoringCommand, cwd: string): Promise<string> {
+  if (command.promptFile !== undefined) {
+    return readFile(resolvePath(cwd, command.promptFile), "utf8");
+  }
+
+  return `# ${command.name}\n\n${command.promptText ?? "TODO: Describe the feature behavior to implement."}\n`;
 }
 
 async function generatedCommandsFromTemplateOptions(
@@ -1142,6 +1207,15 @@ function parseProvider(provider: string): HookCaptureProvider {
   }
 
   fail(EX_USAGE, `unsupported provider: ${provider}`);
+}
+
+function parseCategory(category: string): BenchmarkCategory {
+  const parsed = BenchmarkCategorySchema.safeParse(category);
+  if (parsed.success) {
+    return parsed.data;
+  }
+
+  fail(EX_USAGE, `unsupported category: ${category}`);
 }
 
 function parseHarnessCommandJson(json: string): { command: HarnessCommand; env: Record<string, string> } {

@@ -49,7 +49,7 @@ export class FilesystemSpecCatalogStore implements SpecCatalogStore {
           id: reference.id,
           tags: reference.tags ?? benchmark.tags ?? [],
           catalogPath,
-          featureDirectory: dirname(benchmarkPath),
+          caseDirectory: dirname(benchmarkPath),
           benchmark,
           promptMarkdown
         };

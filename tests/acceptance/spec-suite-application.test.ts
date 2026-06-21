@@ -57,10 +57,10 @@ describe("spec suite application layer", () => {
       "pricing-rounding_codex_trial_2"
     ]);
     expect(promptReader.roots).toEqual([
-      ".bmh/specs/features/login-validation",
-      ".bmh/specs/features/login-validation",
-      ".bmh/specs/features/pricing-rounding",
-      ".bmh/specs/features/pricing-rounding"
+      ".bmh/specs/cases/login-validation",
+      ".bmh/specs/cases/login-validation",
+      ".bmh/specs/cases/pricing-rounding",
+      ".bmh/specs/cases/pricing-rounding"
     ]);
     expect(artifactCollector.calls.map((call) => call.trialId)).toEqual(harnessRunner.calls.map((call) => call.trialId));
     expect(report.global_summary).toMatchObject({
@@ -116,8 +116,8 @@ function loadedCatalog(): LoadedSpecCatalog {
       name: "Core regression suite",
       version: "1.0.0",
       specs: [
-        { id: "login-validation", path: "features/login-validation/benchmark.json", tags: ["auth"] },
-        { id: "pricing-rounding", path: "features/pricing-rounding/benchmark.json", tags: ["billing"] }
+        { id: "login-validation", path: "cases/login-validation/benchmark.json", tags: ["auth"] },
+        { id: "pricing-rounding", path: "cases/pricing-rounding/benchmark.json", tags: ["billing"] }
       ],
       defaults: {
         trials: 3,
@@ -137,8 +137,8 @@ function featureSpec(id: string, tags: readonly string[]): LoadedSpecCatalog["sp
   return {
     id,
       tags: [...tags],
-    catalogPath: `features/${id}/benchmark.json`,
-    featureDirectory: `.bmh/specs/features/${id}`,
+    catalogPath: `cases/${id}/benchmark.json`,
+    caseDirectory: `.bmh/specs/cases/${id}`,
     promptMarkdown: `# ${id}`,
     benchmark: {
       id,

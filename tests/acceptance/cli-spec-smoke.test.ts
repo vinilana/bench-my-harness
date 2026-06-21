@@ -40,7 +40,7 @@ describe("CLI spec smoke", () => {
 });
 
 async function writeRunnableCatalog(cwd: string): Promise<void> {
-  const featureDir = join(cwd, ".bmh", "specs", "features", "project-command-generation");
+  const featureDir = join(cwd, ".bmh", "specs", "cases", "project-command-generation");
   await mkdir(featureDir, { recursive: true });
   await writeFile(join(featureDir, "spec.md"), "# Project Command Generation\n\nGenerate project commands.\n", "utf8");
   await writeFile(
@@ -89,7 +89,7 @@ async function writeRunnableCatalog(cwd: string): Promise<void> {
         specs: [
           {
             id: "project-command-generation",
-            path: "features/project-command-generation/benchmark.json",
+            path: "cases/project-command-generation/benchmark.json",
             tags: ["commands"]
           }
         ],

@@ -14,8 +14,8 @@ describe("filesystem spec catalog loader", () => {
     expect(loaded.specs[0]).toMatchObject({
       id: "login-validation",
       tags: ["auth", "bugfix"],
-      catalogPath: "features/login-validation/benchmark.json",
-      featureDirectory: resolve(catalogRoot, "features/login-validation"),
+      catalogPath: "cases/login-validation/benchmark.json",
+      caseDirectory: resolve(catalogRoot, "cases/login-validation"),
       benchmark: {
         id: "login-validation",
         prompt: {

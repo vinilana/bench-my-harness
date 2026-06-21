@@ -1,20 +1,22 @@
 import type { GitHistoryInspectorPort } from "../ports/git-history-inspector-port.js";
 import type { SpecCatalogStore } from "../ports/spec-catalog-store.js";
 import {
-  createBackwardSpecDraft,
+  createGeneratedGitCase,
   createSpecCatalog,
+  generateDefaultSpecIdentity,
   inferSpecIdFromPromptPath,
-  validateBackfillLimit,
+  validateGeneratedGitLimit,
   type FeatureSpecDraft
 } from "../../domain/benchmark/spec-catalog.js";
+import type { BenchmarkCategory } from "../../domain/benchmark/benchmark-schema.js";
 
-export interface CreateBackwardSpecDraftInput {
+export interface CreateGeneratedGitCaseInput {
   readonly catalogRoot: string;
   readonly repoPath: string;
   readonly repoUrl: string;
   readonly id?: string;
   readonly name?: string;
-  readonly category: string;
+  readonly category: BenchmarkCategory;
   readonly baseRef: string;
   readonly goldenRef: string;
   readonly setupCommands?: readonly string[];
@@ -23,19 +25,18 @@ export interface CreateBackwardSpecDraftInput {
   readonly force?: boolean;
 }
 
-export interface BackfillSpecDraftsInput {
+export interface CreateGeneratedGitCasesInput {
   readonly catalogRoot: string;
   readonly repoPath: string;
   readonly repoUrl: string;
   readonly range: string;
-  readonly outputPrefix?: string;
   readonly limit?: number;
-  readonly category?: string;
+  readonly category?: BenchmarkCategory;
   readonly includeInSuite?: boolean;
   readonly force?: boolean;
 }
 
-export class CreateBackwardSpecDraftUseCase {
+export class CreateGeneratedGitCaseUseCase {
   public constructor(
     private readonly ports: {
       readonly store: SpecCatalogStore;
@@ -43,16 +44,16 @@ export class CreateBackwardSpecDraftUseCase {
     }
   ) {}
 
-  public async execute(input: CreateBackwardSpecDraftInput): Promise<FeatureSpecDraft> {
+  public async execute(input: CreateGeneratedGitCaseInput): Promise<FeatureSpecDraft> {
     const evidence = await this.ports.gitHistory.inspectRange({
       repoPath: input.repoPath,
       baseRef: input.baseRef,
       goldenRef: input.goldenRef
     });
-    const subject = evidence.commitMessages[0] ?? evidence.goldenRef;
-    const draft = createBackwardSpecDraft({
-      id: input.id ?? inferSpecIdFromPromptPath(`${subject}.md`),
-      name: input.name ?? subject,
+    const identity = generateDefaultSpecIdentity();
+    const draft = createGeneratedGitCase({
+      id: input.id ?? inferSpecIdFromPromptPath(`${input.name ?? identity.name}.md`),
+      name: input.name ?? identity.name,
       category: input.category,
       repoUrl: input.repoUrl,
       evidence,
@@ -68,8 +69,8 @@ export class CreateBackwardSpecDraftUseCase {
     });
   }
 
-  public async backfill(input: BackfillSpecDraftsInput): Promise<readonly FeatureSpecDraft[]> {
-    const limit = validateBackfillLimit(input.limit);
+  public async createGeneratedGitCases(input: CreateGeneratedGitCasesInput): Promise<readonly FeatureSpecDraft[]> {
+    const limit = validateGeneratedGitLimit(input.limit);
     await this.ensureCatalog(input.catalogRoot);
     const evidenceItems = await this.ports.gitHistory.listCandidateRanges({
       repoPath: input.repoPath,
@@ -78,15 +79,16 @@ export class CreateBackwardSpecDraftUseCase {
     });
     const drafts: FeatureSpecDraft[] = [];
 
-    for (const evidence of evidenceItems.slice(0, limit)) {
-      const id = this.backfillIdFor(input.outputPrefix, evidence.goldenRef);
-      const draft = relocateDraft(createBackwardSpecDraft({
+    for (const [index, evidence] of evidenceItems.slice(0, limit).entries()) {
+      const id = this.generatedGitIdFor(evidence.goldenRef);
+      const identity = generateDefaultSpecIdentity(index);
+      const draft = createGeneratedGitCase({
         id,
-        name: id,
+        name: identity.name,
         category: input.category ?? "feature",
         repoUrl: input.repoUrl,
         evidence
-      }), input.outputPrefix ?? "backfill");
+      });
 
       drafts.push(await this.ports.store.writeFeatureSpec({
         catalogRoot: input.catalogRoot,
@@ -99,9 +101,9 @@ export class CreateBackwardSpecDraftUseCase {
     return drafts;
   }
 
-  private backfillIdFor(outputPrefix: string | undefined, goldenRef: string): string {
+  private generatedGitIdFor(goldenRef: string): string {
     const normalizedRef = goldenRef.replace(/[^A-Za-z0-9._-]/g, "-").slice(0, 32);
-    return `backfill-${normalizedRef}`;
+    return `generated-git-${normalizedRef}`;
   }
 
   private async ensureCatalog(catalogRoot: string): Promise<void> {
@@ -119,18 +121,4 @@ export class CreateBackwardSpecDraftUseCase {
       throw error;
     }
   }
-}
-
-function relocateDraft(draft: FeatureSpecDraft, parentDirectory: string): FeatureSpecDraft {
-  const directory = `${parentDirectory}/${draft.benchmark.id}`;
-  return {
-    ...draft,
-    directory,
-    specPath: `${directory}/spec.md`,
-    benchmarkPath: `${directory}/benchmark.json`,
-    suiteReference: {
-      ...draft.suiteReference,
-      path: `${directory}/benchmark.json`
-    }
-  };
 }

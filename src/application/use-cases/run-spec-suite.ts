@@ -53,8 +53,8 @@ export class RunSpecSuiteUseCase {
             runId: input.runId,
             trialId,
             workspaceRoot,
-            benchmarkRoot: spec.featureDirectory,
-            promptRoot: spec.featureDirectory,
+            benchmarkRoot: spec.caseDirectory,
+            promptRoot: spec.caseDirectory,
             strictTelemetry: input.strictTelemetry ?? input.loadedCatalog.catalog.defaults?.strict_telemetry
           });
 

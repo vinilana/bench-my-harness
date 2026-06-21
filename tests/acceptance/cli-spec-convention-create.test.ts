@@ -34,8 +34,8 @@ describe("CLI add convention authoring", () => {
 
     expect(exitCode).toBe(0);
 
-    const specPath = join(cwd, ".bmh", "specs", "features", "project-command-generation", "spec.md");
-    const benchmarkPath = join(cwd, ".bmh", "specs", "features", "project-command-generation", "benchmark.json");
+    const specPath = join(cwd, ".bmh", "specs", "cases", "project-command-generation", "spec.md");
+    const benchmarkPath = join(cwd, ".bmh", "specs", "cases", "project-command-generation", "benchmark.json");
     const suite = await readJson(join(cwd, ".bmh", "specs", "suite.json"));
     const benchmark = await readJson(benchmarkPath);
 
@@ -64,7 +64,7 @@ describe("CLI add convention authoring", () => {
     expect(suite.specs).toEqual([
       {
         id: "project-command-generation",
-        path: "features/project-command-generation/benchmark.json"
+        path: "cases/project-command-generation/benchmark.json"
       }
     ]);
     expect(output.stderr()).toBe("");
@@ -104,7 +104,7 @@ describe("CLI add convention authoring", () => {
     expect(exitCode).toBe(0);
 
     const benchmark = await readJson(
-      join(cwd, ".bmh", "specs", "features", "custom-project-command", "benchmark.json")
+      join(cwd, ".bmh", "specs", "cases", "custom-project-command", "benchmark.json")
     );
 
     expect(benchmark).toMatchObject({

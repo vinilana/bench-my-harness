@@ -24,7 +24,7 @@ A single benchmark could be executed only by manually providing `--harness-comma
 
 ```bash
 bench-my-harness run \
-  --benchmark .bmh/specs/features/project-command-generation/benchmark.json \
+  --benchmark .bmh/specs/cases/project-command-generation/benchmark.json \
   --harness codex \
   --harness-command-json '{"executable":"codex","args":["exec","--skip-git-repo-check","--sandbox","workspace-write","--dangerously-bypass-hook-trust","-"]}'
 ```

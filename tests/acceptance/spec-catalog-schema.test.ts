@@ -20,7 +20,7 @@ describe("spec catalog suite schema", () => {
     expect(suite.specs).toEqual([
       {
         id: "login-validation",
-        path: "features/login-validation/benchmark.json",
+        path: "cases/login-validation/benchmark.json",
         tags: ["auth", "bugfix"]
       }
     ]);

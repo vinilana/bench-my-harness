@@ -42,13 +42,18 @@ Recommended layout:
 .bmh/
   specs/
     suite.json
-    features/
+    cases/
       login-validation/
         spec.md
         benchmark.json
       pricing-rounding/
         spec.md
         benchmark.json
+    generated/
+      git/
+        login-validation/
+          spec.md
+          benchmark.json
   runs/
     <run-id>/
       results.json
@@ -84,12 +89,12 @@ The catalog is designed to be committed with the repository. Run outputs under `
   "specs": [
     {
       "id": "login-validation",
-      "path": "features/login-validation/benchmark.json",
+      "path": "cases/login-validation/benchmark.json",
       "tags": ["auth", "bugfix"]
     },
     {
       "id": "pricing-rounding",
-      "path": "features/pricing-rounding/benchmark.json",
+      "path": "cases/pricing-rounding/benchmark.json",
       "tags": ["billing", "feature"]
     }
   ],
@@ -227,22 +232,31 @@ The runner must continue the suite after an individual trial failure unless the 
 
 ## CLI Surface
 
+For convention-based defaults, prompt-file inference, bulk prompt import, and `smoke`, see
+[`17-cli-defaults-and-convention-authoring.md`](./17-cli-defaults-and-convention-authoring.md).
+
+For git checkout provisioning required by comparable real runs, see
+[`18-git-workspace-provisioning-for-comparable-runs.md`](./18-git-workspace-provisioning-for-comparable-runs.md).
+
+For real Codex/Claude Code suite execution, command profiles, hook command resolution, and process diagnostics, see
+[`19-real-harness-suite-execution-and-diagnostics.md`](./19-real-harness-suite-execution-and-diagnostics.md).
+
 Create or update the local spec catalog:
 
 ```bash
-bench-my-harness specs init
+bench-my-harness init
 ```
 
 Create a spec interactively:
 
 ```bash
-bench-my-harness specs create
+bench-my-harness add
 ```
 
 Create a spec non-interactively:
 
 ```bash
-bench-my-harness specs create \
+bench-my-harness add \
   --id login-validation \
   --name "Login validation" \
   --category bugfix \
@@ -254,10 +268,10 @@ bench-my-harness specs create \
   --test-command "npm run typecheck"
 ```
 
-Create a backward spec draft from an already implemented feature:
+Create a generated Git case from an already implemented feature:
 
 ```bash
-bench-my-harness specs create --from-git \
+bench-my-harness add --from-git \
   --id login-validation \
   --name "Login validation" \
   --category bugfix \
@@ -266,32 +280,31 @@ bench-my-harness specs create --from-git \
   --golden-ref 2cbe932
 ```
 
-Create drafts for multiple historical changes:
+Create generated Git cases for multiple historical changes:
 
 ```bash
-bench-my-harness specs backfill \
+bench-my-harness add --from-git \
   --repo-path . \
   --range main~20..main \
-  --limit 25 \
-  --output .bmh/specs/backfill
+  --limit 25
 ```
 
 Validate a catalog:
 
 ```bash
-bench-my-harness specs validate
+bench-my-harness doctor
 ```
 
 Run all specs with suite defaults:
 
 ```bash
-bench-my-harness specs run
+bench-my-harness run
 ```
 
 Run selected harnesses:
 
 ```bash
-bench-my-harness specs run \
+bench-my-harness run \
   --harness codex \
   --harness claude_code
 ```
@@ -299,7 +312,7 @@ bench-my-harness specs run \
 Run selected specs:
 
 ```bash
-bench-my-harness specs run \
+bench-my-harness run \
   --spec login-validation \
   --spec pricing-rounding
 ```
@@ -307,7 +320,7 @@ bench-my-harness specs run \
 Run selected tags:
 
 ```bash
-bench-my-harness specs run --tag auth
+bench-my-harness run --tag auth
 ```
 
 Render or re-render an HTML report:
@@ -322,11 +335,12 @@ Rules:
 
 - The default catalog root is `.bmh/specs`.
 - `--catalog-root <path>` may override the catalog root.
-- `specs create` defaults to interactive mode when required authoring fields are missing and stdin/stdout are TTYs.
-- `specs create --from-git` creates a draft spec from Git evidence and marks semantic requirements as requiring review.
-- `specs backfill` creates draft specs only; drafts are not included in `suite.json` unless `--include-in-suite` is passed.
-- `specs backfill` defaults to `--limit 25` when no limit is provided.
-- `specs backfill --limit <count>` must reject non-positive values.
+- CLI defaults and convention-based shortcuts are specified separately in `docs/specs/17-cli-defaults-and-convention-authoring.md`.
+- `add` defaults to interactive mode when required authoring fields are missing and stdin/stdout are TTYs.
+- `add --from-git` creates a generated Git case from Git evidence and labels its source and bias profile.
+- `add --from-git --range <range>` creates generated Git cases only; generated cases are not included in `suite.json` unless `--include-in-suite` is passed.
+- `add --from-git --range <range>` defaults to `--limit 25` when no limit is provided.
+- `add --from-git --range <range> --limit <count>` must reject non-positive values.
 - Generated specs must be deterministic and safe to edit by humans.
 - `--harness` may be repeated.
 - `--spec` may be repeated.
@@ -341,13 +355,13 @@ BMH must make it easy to create specs before or after a feature exists.
 Two authoring paths are required:
 
 1. forward authoring: a user writes a spec before asking a harness to implement it;
-2. backward authoring: a user or agent creates a spec after the feature already exists, using Git history and repository evidence.
+2. generated Git cases: a user or agent creates a benchmark case after the feature already exists, using Git history and repository evidence.
 
-Backward authoring is important because many teams will adopt BMH after their product already has useful historical features. Those features should be converted into benchmark specs without requiring teams to manually reconstruct every prompt.
+Generated Git cases are important because many teams will adopt BMH after their product already has useful historical features but no written specs. They are a secondary benchmark source with a known history-derived bias profile; written spec cases remain the preferred source.
 
 ### Interactive Creation
 
-`bench-my-harness specs create` should ask for:
+`bench-my-harness add` should ask for:
 
 - spec id;
 - name;
@@ -371,15 +385,15 @@ When `--repo-path` points to a supported local project, command generation from 
 The generated files are:
 
 ```text
-.bmh/specs/features/<spec-id>/spec.md
-.bmh/specs/features/<spec-id>/benchmark.json
+.bmh/specs/cases/<spec-id>/spec.md
+.bmh/specs/cases/<spec-id>/benchmark.json
 ```
 
-If `.bmh/specs/suite.json` does not exist, `specs create` may offer to create it.
+If `.bmh/specs/suite.json` does not exist, `add` may offer to create it.
 
-### Backward Spec Drafting From Git
+### Generated Git Cases
 
-`bench-my-harness specs create --from-git` should inspect local Git metadata and create a draft benchmark spec for an already implemented feature.
+`bench-my-harness add --from-git` should inspect local Git metadata and create a generated benchmark case for an already implemented feature.
 
 Inputs:
 
@@ -402,26 +416,20 @@ Evidence BMH may derive from Git:
 - package or config files changed;
 - probable tags from changed paths.
 
-Generated `spec.md` must be a draft and must clearly identify fields requiring human review. It should not claim certainty about product intent that is not present in the evidence.
+Generated `spec.md` must avoid giving the harness direct commit refs or changed-file lists in the default prompt mode. The prompt should summarize behavior from deterministic Git evidence while keeping commit refs and changed files in `benchmark.json` metadata for evaluation and reporting.
 
-Example generated draft:
+Example generated Git case prompt:
 
 ```markdown
 # Login validation
 
 ## Goal
 
-Re-implement the behavior introduced between `9f3b18a` and `2cbe932`.
-
-## Evidence From Existing Implementation
-
-- Changed files:
-  - `src/auth/validation.ts`
-  - `tests/auth/validation.test.ts`
+Implement the behavior described below in the current repository.
 
 ## Expected Behavior
 
-TODO: Review and replace this section with product-level requirements.
+- Require valid email domains during login validation.
 
 ## Constraints
 
@@ -436,12 +444,14 @@ The corresponding `benchmark.json` should include:
 - generated `required_files_changed` candidates;
 - generated `forbidden_files_changed` only when explicitly provided by the user;
 - generated setup and validation commands when accepted by the user;
-- `metadata.source = "backward_git_draft"`;
-- `metadata.review_status = "needs_human_review"`.
+- `metadata.source = "generated_git"`;
+- `metadata.generation_mode = "git_evidence"`;
+- `metadata.prompt_mode = "behavior_summary"`;
+- `metadata.bias_profile = "generated_from_history"`.
 
-### Agent-Assisted Backward Specs
+### Agent-Assisted Generated Cases
 
-BMH may later allow a coding agent to improve a backward draft, but the initial implementation must keep this separate from deterministic spec creation.
+BMH may later allow a coding agent to improve a generated Git case, but the initial implementation must keep this separate from deterministic spec creation.
 
 Agent-assisted authoring rules:
 
@@ -452,7 +462,7 @@ Agent-assisted authoring rules:
 - deterministic validation commands remain the primary oracle;
 - subjective claims require review status.
 
-This keeps the CLI useful for teams that want agents to backfill many specs while preserving trust in the benchmark catalog.
+This keeps the CLI useful for teams that want agents to generated Git cases many specs while preserving trust in the benchmark catalog.
 
 ## Report Requirements
 
@@ -557,7 +567,7 @@ Add use cases:
 ```text
 CreateSpecCatalogUseCase
 CreateFeatureSpecUseCase
-CreateBackwardSpecDraftUseCase
+CreateGeneratedGitCaseUseCase
 LoadSpecCatalogUseCase
 ValidateSpecCatalogUseCase
 RunSpecSuiteUseCase
@@ -569,7 +579,7 @@ Responsibilities:
 
 - create or update a local spec catalog;
 - create feature spec files from explicit user input;
-- create backward spec drafts from Git evidence;
+- create generated Git cases from Git evidence;
 - load catalog through ports;
 - validate suite and benchmark contracts;
 - resolve Markdown spec prompts;
@@ -611,11 +621,11 @@ src/adapters/outbound/storage/filesystem-html-report-store.ts
 CLI integration:
 
 ```text
-bench-my-harness specs init
-bench-my-harness specs create
-bench-my-harness specs backfill
-bench-my-harness specs validate
-bench-my-harness specs run
+bench-my-harness init
+bench-my-harness add
+bench-my-harness add --from-git
+bench-my-harness doctor
+bench-my-harness run
 bench-my-harness report --format html
 ```
 
@@ -679,23 +689,23 @@ Add tests before implementation:
   - excludes raw payloads and known secrets.
 
 - `tests/acceptance/cli-spec-suite.test.ts`
-  - `specs validate` validates the default `.bmh/specs` catalog;
-  - `specs validate --catalog-root <path>` validates a custom catalog;
-  - `specs run --dry-run` creates `.bmh/runs/<run-id>/results.json`;
-  - `specs run --dry-run` creates `.bmh/runs/<run-id>/report.html`;
+  - `doctor` validates the default `.bmh/specs` catalog;
+  - `doctor --catalog-root <path>` validates a custom catalog;
+  - `run --dry-run` creates `.bmh/runs/<run-id>/results.json`;
+  - `run --dry-run` creates `.bmh/runs/<run-id>/report.html`;
   - `report --run-id <run-id> --format html` re-renders the HTML report.
 
 - `tests/acceptance/cli-spec-authoring.test.ts`
-  - `specs init` creates `.bmh/specs/suite.json`;
-  - `specs create` writes `spec.md` and `benchmark.json`;
-  - `specs create` can add the new spec to `suite.json`;
-  - `specs create --from-git` writes a backward draft with `base_ref`, `golden_ref`, changed-file evidence, and `review_status = "needs_human_review"`;
-  - `specs backfill` creates draft specs without adding them to the suite by default;
-  - `specs backfill` creates at most 25 draft specs by default;
-  - `specs backfill --limit <count>` overrides the default draft count limit;
-  - `specs backfill --limit 0` is rejected;
+  - `init` creates `.bmh/specs/suite.json`;
+  - `add` writes `spec.md` and `benchmark.json`;
+  - `add` can add the new spec to `suite.json`;
+  - `add --from-git` writes a generated Git case with `base_ref`, `golden_ref`, changed-file evidence, `source = "generated_git"`, and `prompt_mode = "behavior_summary"`;
+  - `add --from-git` creates generated Git cases without adding them to the suite by default;
+  - `add --from-git` creates at most 25 generated Git cases by default;
+  - `add --from-git --limit <count>` overrides the default generated case count limit;
+  - `add --from-git --limit 0` is rejected;
   - authoring rejects paths that escape `.bmh/specs`;
-  - generated specs pass `specs validate`.
+  - generated specs pass `doctor`.
 
 ## Fixtures
 
@@ -703,8 +713,8 @@ Add deterministic fixtures:
 
 ```text
 tests/fixtures/spec-catalogs/minimal/.bmh/specs/suite.json
-tests/fixtures/spec-catalogs/minimal/.bmh/specs/features/login-validation/spec.md
-tests/fixtures/spec-catalogs/minimal/.bmh/specs/features/login-validation/benchmark.json
+tests/fixtures/spec-catalogs/minimal/.bmh/specs/cases/login-validation/spec.md
+tests/fixtures/spec-catalogs/minimal/.bmh/specs/cases/login-validation/benchmark.json
 tests/fixtures/spec-catalogs/invalid-path-escape/.bmh/specs/suite.json
 tests/fixtures/spec-suite-results/basic/results.json
 tests/fixtures/git-history/login-validation-diff.patch
@@ -721,11 +731,11 @@ Fixtures must not require real Codex or Claude Code binaries.
 4. Add `SpecCatalogStore`, `SuiteResultStore`, and `GitHistoryInspectorPort` ports.
 5. Add filesystem catalog loader/writer with path traversal protection.
 6. Add Git history inspector adapter.
-7. Add spec authoring use cases for init, explicit create, and backward draft creation.
+7. Add spec authoring use cases for init, explicit create, and generated Git case creation.
 8. Add suite runner use case that reuses `BenchmarkRunner`.
 9. Add suite result aggregation and global benchmark summary.
 10. Add static HTML report serialization.
-11. Add CLI commands for `specs init`, `specs create`, `specs backfill`, `specs validate`, `specs run`, and `report --format html`.
+11. Add CLI commands for `init`, `add`, `add --from-git`, `doctor`, `run`, and `report --format html`.
 12. Update README Getting Started after executable behavior exists.
 13. Run:
 
@@ -751,5 +761,5 @@ npm run build
 - Do not expand v1 production harness scope beyond Codex and Claude Code.
 - Do not treat unavailable token, context, or cost data as zero.
 - Do not treat Git history inference as a reviewed product spec.
-- Do not include backward drafts in a benchmark suite without explicit user confirmation.
+- Do not include generated Git cases in a benchmark suite without explicit user confirmation.
 - Do not let agent-assisted authoring weaken deterministic validation requirements.
