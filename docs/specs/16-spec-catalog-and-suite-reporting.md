@@ -230,6 +230,12 @@ The runner must continue the suite after an individual trial failure unless the 
 For convention-based defaults, prompt-file inference, bulk prompt import, and `specs smoke`, see
 [`17-cli-defaults-and-convention-authoring.md`](./17-cli-defaults-and-convention-authoring.md).
 
+For git checkout provisioning required by comparable real runs, see
+[`18-git-workspace-provisioning-for-comparable-runs.md`](./18-git-workspace-provisioning-for-comparable-runs.md).
+
+For real Codex/Claude Code suite execution, command profiles, hook command resolution, and process diagnostics, see
+[`19-real-harness-suite-execution-and-diagnostics.md`](./19-real-harness-suite-execution-and-diagnostics.md).
+
 Create or update the local spec catalog:
 
 ```bash
