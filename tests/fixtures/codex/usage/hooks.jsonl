@@ -1,0 +1,4 @@
+{"hook_event_name":"SessionStart","session_id":"codex-session-usage-1","transcript_path":"/tmp/bmh/codex-usage-transcript.jsonl","model":"gpt-5.1","cwd":"/tmp/bmh/workspace"}
+{"hook_event_name":"SubagentStart","session_id":"codex-session-usage-1","subagent_id":"subagent_1","subagent_name":"Explore","occurred_at":"2026-06-21T02:10:00.000Z"}
+{"hook_event_name":"PreToolUse","session_id":"codex-session-usage-1","turn_id":"turn-1","tool_name":"mcp__github__pull_request_read","tool_use_id":"tool-mcp-1","tool_input":{"owner":"example","repo":"demo","pull_number":42}}
+{"hook_event_name":"SubagentStop","session_id":"codex-session-usage-1","subagent_id":"subagent_1","subagent_name":"Explore","occurred_at":"2026-06-21T02:11:00.000Z"}

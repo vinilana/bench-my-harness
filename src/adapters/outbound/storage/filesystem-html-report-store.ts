@@ -1,7 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
-import type { SuiteReport, SuiteTrialReport } from "../../../domain/reports/suite-report.js";
+import { renderSuiteReportHtml, type SuiteReport, type SuiteTrialReport } from "../../../domain/reports/suite-report.js";
 import { redactSecrets } from "../../../domain/security/redact-secrets.js";
 
 interface HtmlTrial {
@@ -60,6 +60,16 @@ export class FilesystemHtmlReportStore {
   public constructor(private readonly options: { root: string }) {}
 
   public async save(input: SuiteReport | unknown): Promise<{ path: string; html: string }> {
+    if (isSuiteReport(input)) {
+      const html = renderSuiteReportHtml(input);
+      const path = join(this.runDir(input.run_id), "report.html");
+
+      await mkdir(this.runDir(input.run_id), { recursive: true });
+      await writeFile(path, html, "utf8");
+
+      return { path, html };
+    }
+
     const normalized = normalizeReport(input);
     const html = renderHtml(normalized);
     const path = join(this.runDir(normalized.run_id), "report.html");
@@ -89,6 +99,16 @@ export class FilesystemHtmlReportStore {
 
     return join(this.options.root, runId);
   }
+}
+
+function isSuiteReport(value: unknown): value is SuiteReport {
+  return value !== null &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    "run_id" in value &&
+    "global_summary" in value &&
+    "harness_summaries" in value &&
+    "spec_summaries" in value;
 }
 
 function renderHtml(input: HtmlReport): string {

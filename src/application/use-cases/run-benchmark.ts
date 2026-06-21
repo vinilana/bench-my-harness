@@ -4,6 +4,7 @@ import type { HookEventCounterPort } from "../ports/hook-event-counter-port.js";
 import type { HookInstallation, InstallHarnessHooksPort } from "../ports/install-harness-hooks-port.js";
 import type { HarnessName, HarnessRunnerPort, ProcessDiagnostics } from "../ports/harness-runner-port.js";
 import type { ValidationRunnerPort, ValidationRunnerResult } from "../ports/validation-runner-port.js";
+import type { NormalizedUsageCapturePort, UsageReport } from "../ports/usage-capture-port.js";
 import type {
   ProvisionWorkspaceInput,
   WorkspaceProvisionerPort,
@@ -66,6 +67,13 @@ export interface RunTrialResult {
   process_diagnostics?: ProcessDiagnostics;
   hook_command?: HookInstallation["hookCommand"];
   hook_event_count?: number;
+  usage?: UsageReport;
+  artifact_paths?: {
+    hook_spool_path?: string;
+    transcript_path?: string;
+    diff_path?: string;
+    test_output_path?: string;
+  };
 }
 
 export interface RunBenchmarkInput {
@@ -101,6 +109,7 @@ export class BenchmarkRunner {
       validationRunner?: ValidationRunnerPort;
       diffGenerator?: DiffGeneratorPort;
       hookEventCounter?: HookEventCounterPort;
+      usageCapture?: NormalizedUsageCapturePort;
       artifactCollector: ArtifactCollectorPort;
       workspaceProvisioner: WorkspaceProvisionerPort;
     }
@@ -114,6 +123,9 @@ export class BenchmarkRunner {
 
     let installation: HookInstallation | undefined;
     let result: RunTrialResult;
+    const artifactPaths: NonNullable<RunTrialResult["artifact_paths"]> = {
+      hook_spool_path: spoolPath
+    };
 
     try {
       if (requestedSource?.type === "git" && workspaceSource?.resolved_base_sha === undefined) {
@@ -121,7 +133,8 @@ export class BenchmarkRunner {
           status: "failed",
           failure_classification: "environment_failed",
           workspace,
-          workspace_source: workspaceSource
+          workspace_source: workspaceSource,
+          artifact_paths: artifactPaths
         };
       }
 
@@ -162,6 +175,7 @@ export class BenchmarkRunner {
       let validationResult: ValidationRunnerResult | undefined;
       let testOutputPath = harnessResult.testOutputPath;
       let diffPath = harnessResult.diffPath;
+      artifactPaths.transcript_path = harnessResult.transcriptPath;
 
       if (harnessSucceeded) {
         validationResult = await this.runValidationIfConfigured(input, workspace);
@@ -169,6 +183,8 @@ export class BenchmarkRunner {
       }
 
       diffPath = await this.generateDiffIfConfigured(workspace, diffPath, workspaceSource);
+      artifactPaths.diff_path = diffPath;
+      artifactPaths.test_output_path = testOutputPath;
 
       await this.ports.artifactCollector.collect({
         runId: input.runId,
@@ -179,6 +195,13 @@ export class BenchmarkRunner {
         testOutputPath
       });
       const hookEventCount = await this.countHookEvents(spoolPath);
+      const usage = await this.captureUsageIfConfigured({
+        input,
+        workspace,
+        spoolPath,
+        transcriptPath: harnessResult.transcriptPath,
+        processDiagnostics: harnessResult.processDiagnostics
+      });
 
       if (harnessResult.timedOut) {
         result = {
@@ -188,7 +211,9 @@ export class BenchmarkRunner {
           workspace_source: workspaceSource,
           process_diagnostics: harnessResult.processDiagnostics,
           hook_command: installation.hookCommand,
-          hook_event_count: hookEventCount
+          hook_event_count: hookEventCount,
+          usage,
+          artifact_paths: artifactPaths
         };
       } else if (harnessResult.exitCode !== 0) {
         result = {
@@ -198,7 +223,9 @@ export class BenchmarkRunner {
           workspace_source: workspaceSource,
           process_diagnostics: harnessResult.processDiagnostics,
           hook_command: installation.hookCommand,
-          hook_event_count: hookEventCount
+          hook_event_count: hookEventCount,
+          usage,
+          artifact_paths: artifactPaths
         };
       } else if (validationResult?.status === "failed") {
         result = {
@@ -208,7 +235,9 @@ export class BenchmarkRunner {
           workspace_source: workspaceSource,
           process_diagnostics: harnessResult.processDiagnostics,
           hook_command: installation.hookCommand,
-          hook_event_count: hookEventCount
+          hook_event_count: hookEventCount,
+          usage,
+          artifact_paths: artifactPaths
         };
       } else {
         result = {
@@ -217,18 +246,32 @@ export class BenchmarkRunner {
           workspace_source: workspaceSource,
           process_diagnostics: harnessResult.processDiagnostics,
           hook_command: installation.hookCommand,
-          hook_event_count: hookEventCount
+          hook_event_count: hookEventCount,
+          usage,
+          artifact_paths: artifactPaths
         };
       }
     } catch {
-      result = { status: "failed", failure_classification: "adapter_failed", workspace, workspace_source: workspaceSource };
+      result = {
+        status: "failed",
+        failure_classification: "adapter_failed",
+        workspace,
+        workspace_source: workspaceSource,
+        artifact_paths: artifactPaths
+      };
     }
 
     if (installation) {
       try {
         await this.ports.hookInstaller.uninstall(installation);
       } catch {
-        return { status: "failed", failure_classification: "adapter_failed", workspace, workspace_source: workspaceSource };
+        return {
+          status: "failed",
+          failure_classification: "adapter_failed",
+          workspace,
+          workspace_source: workspaceSource,
+          artifact_paths: artifactPaths
+        };
       }
     }
 
@@ -237,6 +280,25 @@ export class BenchmarkRunner {
 
   private async countHookEvents(spoolPath: string): Promise<number | undefined> {
     return this.ports.hookEventCounter?.count({ spoolPath });
+  }
+
+  private async captureUsageIfConfigured(input: {
+    readonly input: RunTrialInput;
+    readonly workspace: string;
+    readonly spoolPath: string;
+    readonly transcriptPath?: string;
+    readonly processDiagnostics?: ProcessDiagnostics;
+  }): Promise<UsageReport | undefined> {
+    return this.ports.usageCapture?.captureUsage({
+      provider: input.input.harness,
+      runId: input.input.runId,
+      trialId: input.input.trialId,
+      workspace: input.workspace,
+      hookSpoolPath: input.spoolPath,
+      transcriptPath: input.transcriptPath,
+      processStdout: input.processDiagnostics?.stdout,
+      processStderr: input.processDiagnostics?.stderr
+    });
   }
 
   private async generateDiffIfConfigured(

@@ -1,35 +1,55 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
+import { FilesystemArtifactFinalizer } from "../filesystem/filesystem-artifact-finalizer.js";
+import type { ArtifactFinalizerPort } from "../../../application/ports/artifact-finalizer-port.js";
 import type {
   SuiteResultStore,
+  TrialArtifactFinalizationRecord,
   TrialProcessDiagnosticsRecord
 } from "../../../application/ports/suite-result-store.js";
 import type { SuiteReport, SuiteTrialReport } from "../../../domain/reports/suite-report.js";
 import { buildSuiteReport, renderSuiteReportHtml } from "../../../domain/reports/suite-report.js";
 
 export class FilesystemSuiteResultStore implements SuiteResultStore {
-  public constructor(private readonly options: { root: string }) {}
+  private readonly artifactFinalizer: ArtifactFinalizerPort;
+
+  public constructor(private readonly options: { root: string; artifactFinalizer?: ArtifactFinalizerPort }) {
+    this.artifactFinalizer = options.artifactFinalizer ?? new FilesystemArtifactFinalizer({ root: options.root });
+  }
 
   public async save(input: {
     runId: string;
     trials: readonly SuiteTrialReport[];
     report: SuiteReport;
     processDiagnostics?: readonly TrialProcessDiagnosticsRecord[];
+    artifactFinalizations?: readonly TrialArtifactFinalizationRecord[];
   }): Promise<void> {
     const runDir = this.runDir(input.runId);
     await mkdir(runDir, { recursive: true });
-    await writeFile(this.resultsPath(input.runId), `${JSON.stringify(input.report, null, 2)}\n`, "utf8");
-    await writeFile(join(runDir, "report.html"), renderSuiteReportHtml(input.report), "utf8");
-
-    for (const trial of input.trials) {
-      const trialPath = this.trialPath(input.runId, trial);
-      await mkdir(dirname(trialPath), { recursive: true });
-      await writeFile(trialPath, `${JSON.stringify(trial, null, 2)}\n`, "utf8");
-    }
 
     for (const diagnostic of input.processDiagnostics ?? []) {
       await this.writeProcessDiagnostics(input.runId, diagnostic);
+    }
+
+    const finalizedTrials = await this.finalizeTrials(
+      input.runId,
+      input.trials,
+      input.artifactFinalizations ?? [],
+      input.processDiagnostics ?? []
+    );
+    const finalizedReport: SuiteReport = {
+      ...input.report,
+      trials: finalizedTrials
+    };
+
+    await writeFile(this.resultsPath(input.runId), `${JSON.stringify(finalizedReport, null, 2)}\n`, "utf8");
+    await writeFile(join(runDir, "report.html"), renderSuiteReportHtml(finalizedReport), "utf8");
+
+    for (const trial of finalizedTrials) {
+      const trialPath = this.trialPath(input.runId, trial);
+      await mkdir(dirname(trialPath), { recursive: true });
+      await writeFile(trialPath, `${JSON.stringify(trial, null, 2)}\n`, "utf8");
     }
   }
 
@@ -69,6 +89,59 @@ export class FilesystemSuiteResultStore implements SuiteResultStore {
     );
   }
 
+  private async finalizeTrials(
+    runId: string,
+    trials: readonly SuiteTrialReport[],
+    finalizations: readonly TrialArtifactFinalizationRecord[],
+    processDiagnostics: readonly TrialProcessDiagnosticsRecord[]
+  ): Promise<SuiteTrialReport[]> {
+    const finalizationByTrial = new Map(
+      finalizations.map((record) => [trialKey(record.spec_id, record.harness, record.trial_id), record])
+    );
+    const diagnosticsByTrial = new Map(
+      processDiagnostics.map((record) => [trialKey(record.spec_id, record.harness, record.trial_id), record.diagnostics])
+    );
+    const finalized: SuiteTrialReport[] = [];
+
+    for (const trial of trials) {
+      const finalization = finalizationByTrial.get(trialKey(trial.spec_id, trial.harness, trial.trial_id));
+
+      if (finalization === undefined) {
+        finalized.push(trial);
+        continue;
+      }
+
+      const result = await this.artifactFinalizer.finalize({
+        runId,
+        specId: finalization.spec_id,
+        harness: finalization.harness,
+        trialId: finalization.trial_id,
+        workspace: finalization.workspace,
+        hookSpoolPath: finalization.hook_spool_path,
+        transcriptPath: finalization.transcript_path,
+        diffPath: finalization.diff_path,
+        testOutputPath: finalization.test_output_path,
+        processDiagnostics: finalization.process_diagnostics
+          ?? diagnosticsByTrial.get(trialKey(finalization.spec_id, finalization.harness, finalization.trial_id)),
+        usage: finalization.usage,
+        strictTelemetry: finalization.strict_telemetry
+      });
+
+      finalized.push({
+        ...trial,
+        artifact_refs: [
+          join("specs", trial.spec_id, trial.harness, trial.trial_id, "result.json"),
+          ...result.artifactRefs
+        ],
+        artifact_integrity: {
+          artifacts: result.artifactIndex
+        }
+      });
+    }
+
+    return finalized;
+  }
+
   private runDir(runId: string): string {
     if (!/^[A-Za-z0-9._-]+$/.test(runId)) {
       throw new Error("invalid run id for suite result storage");
@@ -76,6 +149,10 @@ export class FilesystemSuiteResultStore implements SuiteResultStore {
 
     return join(this.options.root, runId);
   }
+}
+
+function trialKey(specId: string, harness: string, trialId: string): string {
+  return `${specId}\0${harness}\0${trialId}`;
 }
 
 function isNotFoundError(error: unknown): boolean {

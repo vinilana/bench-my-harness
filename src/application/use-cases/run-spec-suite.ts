@@ -1,5 +1,10 @@
 import type { HarnessName } from "../ports/harness-runner-port.js";
-import type { TrialProcessDiagnosticsRecord, SuiteResultStore } from "../ports/suite-result-store.js";
+import type {
+  TrialArtifactFinalizationRecord,
+  TrialProcessDiagnosticsRecord,
+  SuiteResultStore
+} from "../ports/suite-result-store.js";
+import type { MetricObservation, UsageReport } from "../ports/usage-capture-port.js";
 import type { LoadedSpecCatalog } from "../../domain/benchmark/spec-catalog.js";
 import type { SuiteReport, SuiteTrialReport } from "../../domain/reports/suite-report.js";
 import { buildSuiteReport } from "../../domain/reports/suite-report.js";
@@ -29,6 +34,7 @@ export class RunSpecSuiteUseCase {
     const workspaceRoot = input.workspaceRoot ?? input.loadedCatalog.catalog.defaults?.workspace_root ?? ".bmh/workspaces";
     const trialReports: SuiteTrialReport[] = [];
     const processDiagnostics: TrialProcessDiagnosticsRecord[] = [];
+    const artifactFinalizations: TrialArtifactFinalizationRecord[] = [];
     const totalTrials = selectedSpecs.length * harnesses.length * trials;
     let completedTrials = 0;
 
@@ -57,6 +63,7 @@ export class RunSpecSuiteUseCase {
             ? undefined
             : processDiagnosticsRefs(spec.id, harness, trialId, result.process_diagnostics);
           const processDiagnosticRefs = diagnosticsRefs?.process;
+          const baseArtifactRef = `specs/${spec.id}/${harness}/${trialId}`;
           const diagnosticArtifactRefs = processDiagnosticRefs === undefined
             ? []
             : [
@@ -64,6 +71,11 @@ export class RunSpecSuiteUseCase {
                 processDiagnosticRefs.stderr_ref,
                 processDiagnosticRefs.exit_ref
               ];
+          const provisionalArtifactRefs = [
+            `${baseArtifactRef}/diff.patch`,
+            `${baseArtifactRef}/test-output.txt`,
+            `${baseArtifactRef}/transcript.jsonl`
+          ];
 
           if (result.process_diagnostics !== undefined) {
             processDiagnostics.push({
@@ -73,6 +85,19 @@ export class RunSpecSuiteUseCase {
               diagnostics: result.process_diagnostics
             });
           }
+          artifactFinalizations.push({
+            spec_id: spec.id,
+            harness,
+            trial_id: trialId,
+            workspace: result.workspace,
+            hook_spool_path: result.artifact_paths?.hook_spool_path,
+            transcript_path: result.artifact_paths?.transcript_path,
+            diff_path: result.artifact_paths?.diff_path,
+            test_output_path: result.artifact_paths?.test_output_path,
+            process_diagnostics: result.process_diagnostics,
+            usage: result.usage,
+            strict_telemetry: input.strictTelemetry ?? input.loadedCatalog.catalog.defaults?.strict_telemetry
+          });
 
           trialReports.push({
             spec_id: spec.id,
@@ -88,39 +113,14 @@ export class RunSpecSuiteUseCase {
             hook_command: result.hook_command,
             workspace_source: result.workspace_source,
             artifact_refs: [
-              `specs/${spec.id}/${harness}/${trialId}/result.json`,
-              `specs/${spec.id}/${harness}/${trialId}/diff.patch`,
-              `specs/${spec.id}/${harness}/${trialId}/test-output.txt`,
-              `specs/${spec.id}/${harness}/${trialId}/transcript.jsonl`,
-              ...diagnosticArtifactRefs
+              `${baseArtifactRef}/result.json`,
+              ...diagnosticArtifactRefs,
+              ...provisionalArtifactRefs
             ],
             diagnostics: diagnosticsRefs,
             comparability,
-            metrics: [
-              {
-                metric: "token_usage",
-                value: null,
-                unit: "tokens",
-                measurement_source: "unavailable",
-                capture_source: "usage_capture",
-                confidence: "none"
-              },
-              {
-                metric: "context_usage",
-                value: null,
-                measurement_source: "unavailable",
-                capture_source: "usage_capture",
-                confidence: "none"
-              },
-              {
-                metric: "cost",
-                value: null,
-                unit: "usd",
-                measurement_source: "unavailable",
-                capture_source: "usage_capture",
-                confidence: "none"
-              }
-            ],
+            metrics: metricsForUsage(result.usage),
+            usage: result.usage,
             notes: []
           });
           completedTrials += 1;
@@ -146,7 +146,8 @@ export class RunSpecSuiteUseCase {
       runId: input.runId,
       trials: trialReports,
       report,
-      processDiagnostics
+      processDiagnostics,
+      artifactFinalizations
     });
 
     return report;
@@ -205,5 +206,55 @@ function comparabilityFor(result: Awaited<ReturnType<BenchmarkRunner["runTrial"]
   return {
     status: "limited",
     reasons: ["workspace source provenance is unavailable"]
+  };
+}
+
+function metricsForUsage(usage: UsageReport | undefined): SuiteTrialReport["metrics"] {
+  if (usage === undefined) {
+    return [
+      unavailableMetric("token_usage", "tokens", "provider did not expose total token usage"),
+      unavailableMetric("context_usage", undefined, "context usage capture is not configured"),
+      unavailableMetric("cost", "usd", "no native billing or pricing source configured")
+    ];
+  }
+
+  const tokenMetric: MetricObservation = usage.tokens.total === null
+    ? unavailableMetric("token_usage", "tokens", "provider did not expose total token usage")
+    : {
+        metric: "token_usage",
+        value: usage.tokens.total.value,
+        unit: usage.tokens.total.unit,
+        measurement_source: usage.tokens.total.measurement_source,
+        capture_source: usage.tokens.total.capture_source,
+        confidence: usage.tokens.total.confidence,
+        unavailable_reason: usage.tokens.total.unavailable_reason,
+        evidence_refs: usage.tokens.total.evidence_refs
+      };
+
+  return [
+    tokenMetric,
+    unavailableMetric("context_usage", undefined, "context usage capture is not configured"),
+    {
+      metric: "cost",
+      value: usage.cost.total_usd.value,
+      unit: usage.cost.total_usd.unit,
+      measurement_source: usage.cost.total_usd.measurement_source,
+      capture_source: usage.cost.total_usd.capture_source,
+      confidence: usage.cost.total_usd.confidence,
+      unavailable_reason: usage.cost.total_usd.unavailable_reason,
+      evidence_refs: usage.cost.total_usd.evidence_refs
+    }
+  ];
+}
+
+function unavailableMetric(metric: string, unit: string | undefined, unavailableReason: string): MetricObservation {
+  return {
+    metric,
+    value: null,
+    unit,
+    measurement_source: "unavailable",
+    capture_source: "usage_capture",
+    confidence: "none",
+    unavailable_reason: unavailableReason
   };
 }

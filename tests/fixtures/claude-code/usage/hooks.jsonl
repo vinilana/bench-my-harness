@@ -1,0 +1,4 @@
+{"hook_event_name":"SessionStart","session_id":"claude-session-usage-1","transcript_path":"/tmp/bmh/claude-usage-transcript.jsonl","cwd":"/tmp/bmh/workspace"}
+{"hook_event_name":"PreToolUse","session_id":"claude-session-usage-1","tool_name":"Task","tool_use_id":"agent-1","tool_input":{"subagent_type":"Explore","description":"Inspect the failing test"},"occurred_at":"2026-06-21T03:10:00.000Z"}
+{"hook_event_name":"PostToolUse","session_id":"claude-session-usage-1","tool_name":"Task","tool_use_id":"agent-1","tool_input":{"subagent_type":"Explore"},"tool_response":{"model":"claude-sonnet-4.5","usage":{"total_tokens":4100}},"occurred_at":"2026-06-21T03:12:00.000Z"}
+{"hook_event_name":"PreToolUse","session_id":"claude-session-usage-1","tool_name":"mcp__filesystem__read_file","tool_use_id":"tool-mcp-1","tool_input":{"path":"package.json"}}

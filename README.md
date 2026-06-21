@@ -35,11 +35,13 @@ BMH is being built in phases. The current v1 foundation is focused on a local, r
 - Process-backed fake/local harness execution for tests and controlled runs.
 - Validation command execution through a port-backed runner.
 - Usage, metric, comparability, scoring, and report models with source/confidence.
+- Best-effort usage capture for real Codex and Claude Code suite runs, including model, token, cost, subagent, skill, and MCP fields when sources expose them.
+- Per-trial artifact finalization with `usage.json`, `artifact-index.json`, process diagnostics, hooks, transcripts, diffs, and validation output.
 - JSON and Markdown report export with redaction by default.
 - Local HTTP ingest with HMAC, timestamp, nonce, provider, and payload-size checks.
 - Local `.bmh/specs` catalogs for benchmark suites built from feature specs.
 - CLI spec authoring, including backward Git draft generation and capped backfill.
-- Static redacted `report.html` generation for suite runs, with filters by harness, spec, tag, status, and comparability.
+- Static redacted `report.html` generation for suite runs, with filters, rankings, charts, usage coverage, artifact integrity, and harness comparison by time, cost, and token efficiency.
 
 ### Future phases
 
@@ -167,7 +169,9 @@ node ./dist/adapters/inbound/cli/main.js specs run \
   --run-id local_codex_real_001
 ```
 
-Real suite runs create one git checkout per trial at the benchmark `repo.base_ref`, install project-local hooks inside that checkout, run the harness, execute validation commands, and write `results.json`, `report.html`, per-trial `result.json`, `process-stdout.txt`, `process-stderr.txt`, and `process-exit.json` under `.bmh/runs/<run-id>`.
+Real suite runs create one git checkout per trial at the benchmark `repo.base_ref`, install project-local hooks inside that checkout, run the harness, execute validation commands, capture best-effort usage data, and write `results.json`, `report.html`, per-trial `result.json`, `process-stdout.txt`, `process-stderr.txt`, `process-exit.json`, `hooks.jsonl`, `usage.json`, and `artifact-index.json` under `.bmh/runs/<run-id>`.
+
+`report.html` is the main comparison artifact. It includes harness ranking controls, duration/score/token/cost charts, observability coverage, artifact integrity, model usage, subagent usage when available, skills, MCP usage, and source/confidence badges for usage metrics. Missing cost or token evidence is shown as unavailable or limited instead of being treated as better than known values.
 
 ## Project Layout
 
@@ -461,7 +465,7 @@ Dry-run suite execution writes:
 .bmh/runs/local_suite_001/specs/<spec-id>/<harness>/<trial-id>/result.json
 ```
 
-The first suite runner implementation is intended for deterministic local validation and fake harness tests. Real Codex and Claude Code suite execution remains an explicit local smoke workflow until the real non-interactive harness commands are finalized.
+Real Codex and Claude Code execution is supported as an explicit local smoke workflow through `specs run --real`. Use it only in disposable workspaces or with reviewed specs because the selected harness will be allowed to edit the benchmark checkout.
 
 ### 10. Render a report
 

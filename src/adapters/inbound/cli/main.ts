@@ -30,6 +30,7 @@ import { FilesystemHtmlReportStore } from "../../outbound/storage/filesystem-htm
 import { FilesystemSpecCatalogStore } from "../../outbound/filesystem/filesystem-spec-catalog-store.js";
 import { ProcessGitHistoryInspector } from "../../outbound/git/process-git-history-inspector.js";
 import { FilesystemPromptFileReader } from "../../outbound/filesystem/filesystem-prompt-file-reader.js";
+import { FilesystemUsageCapture } from "../../outbound/usage/filesystem-usage-capture.js";
 import { BenchmarkSchema, type Benchmark } from "../../../domain/benchmark/benchmark-schema.js";
 import type { HarnessCommand } from "../../../domain/harnesses/harness-profile.js";
 import { ResolveBenchmarkPromptUseCase } from "../../../application/use-cases/resolve-benchmark-prompt.js";
@@ -276,6 +277,7 @@ export function buildProgram(context: CliContext): Command {
           : new DryRunHarnessRunner(),
         validationRunner: options.runValidation ? new ProcessValidationRunner() : undefined,
         diffGenerator: options.dryRun ? undefined : new FilesystemGitDiffGenerator(),
+        usageCapture: options.dryRun ? undefined : new FilesystemUsageCapture(),
         artifactCollector: new DryRunArtifactCollector(),
         workspaceProvisioner: options.dryRun ? new DryRunWorkspaceProvisioner() : new FilesystemWorkspaceProvisioner(),
         promptResolver: new ResolveBenchmarkPromptUseCase(new FilesystemPromptFileReader())
@@ -611,6 +613,7 @@ export function buildProgram(context: CliContext): Command {
         validationRunner: options.real === true ? new ProcessValidationRunner() : undefined,
         diffGenerator: options.real === true ? new FilesystemGitDiffGenerator() : undefined,
         hookEventCounter: options.real === true ? new FilesystemHookEventCounter() : undefined,
+        usageCapture: options.real === true ? new FilesystemUsageCapture() : undefined,
         artifactCollector: new DryRunArtifactCollector(),
         workspaceProvisioner: options.real === true ? new FilesystemWorkspaceProvisioner() : new DryRunWorkspaceProvisioner(),
         promptResolver: new ResolveBenchmarkPromptUseCase(new FilesystemPromptFileReader())
