@@ -87,4 +87,48 @@ describe("Claude Code usage capture", () => {
       mcp: "partial"
     });
   });
+
+  test("aggregates Claude Code transcript usage with dedupe, cache tokens, and pricing fallback", async () => {
+    const usageCapture = new ClaudeCodeUsageCapture({
+      transcriptJsonlPath: resolve(fixtureRoot, "claude-session-transcript.jsonl")
+    });
+
+    const usage = await usageCapture.captureUsage({
+      provider: "claude_code",
+      runId: "run_usage_claude_transcript",
+      trialId: "trial_usage_claude_transcript"
+    });
+
+    expect(usage.llms).toEqual([expect.objectContaining({
+      model: "claude-sonnet-4-20250514",
+      provider: "anthropic",
+      role: "primary",
+      measurement_source: "native",
+      capture_source: "claude_transcript",
+      confidence: "medium",
+      evidence_refs: ["claude-session-transcript.jsonl"]
+    })]);
+    expect(usage.tokens.total).toEqual(expect.objectContaining({
+      value: 2375,
+      unit: "tokens",
+      measurement_source: "native",
+      capture_source: "claude_transcript",
+      confidence: "medium",
+      evidence_refs: ["claude-session-transcript.jsonl"]
+    }));
+    expect(usage.tokens.input).toEqual(expect.objectContaining({ value: 1500 }));
+    expect(usage.tokens.output).toEqual(expect.objectContaining({ value: 250 }));
+    expect(usage.tokens.cache_write).toEqual(expect.objectContaining({ value: 125 }));
+    expect(usage.tokens.cache_read).toEqual(expect.objectContaining({ value: 500 }));
+    expect(usage.cost.total_usd.value).toBeCloseTo(0.022415, 12);
+    expect(usage.cost.total_usd).toEqual(expect.objectContaining({
+      unit: "usd",
+      measurement_source: "estimated",
+      capture_source: "claude_transcript_pricing",
+      confidence: "medium",
+      evidence_refs: ["claude-session-transcript.jsonl"]
+    }));
+    expect(usage.coverage.tokens).toBe("available");
+    expect(usage.coverage.cost).toBe("available");
+  });
 });

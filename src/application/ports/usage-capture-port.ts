@@ -23,6 +23,7 @@ export interface UsageCaptureContext {
   readonly workspace?: string;
   readonly hookSpoolPath?: string;
   readonly transcriptPath?: string;
+  readonly transcriptEvidenceRef?: string;
   readonly processStdout?: string;
   readonly processStderr?: string;
   readonly processStdoutPath?: string;

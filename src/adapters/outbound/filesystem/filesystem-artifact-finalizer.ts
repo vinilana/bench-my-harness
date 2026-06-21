@@ -8,23 +8,38 @@ import type {
   TrialArtifactFinalizationInput,
   TrialArtifactFinalizationResult
 } from "../../../application/ports/artifact-finalizer-port.js";
+import type { TrialTranscriptResolverPort } from "../../../application/ports/trial-transcript-resolver-port.js";
+import { FilesystemProviderTranscriptResolver } from "./filesystem-provider-transcript-resolver.js";
 
 interface ArtifactCandidate {
   readonly ref: string;
   readonly kind: string;
   readonly sourcePath?: string;
   readonly unavailableReason: string;
+  readonly requiredWhenStrict?: boolean;
 }
 
 export class FilesystemArtifactFinalizer implements ArtifactFinalizerPort {
-  public constructor(private readonly options: { root: string }) {}
+  private readonly transcriptResolver: TrialTranscriptResolverPort;
+
+  public constructor(private readonly options: { root: string; transcriptResolver?: TrialTranscriptResolverPort }) {
+    this.transcriptResolver = options.transcriptResolver ?? new FilesystemProviderTranscriptResolver();
+  }
 
   public async finalize(input: TrialArtifactFinalizationInput): Promise<TrialArtifactFinalizationResult> {
     const trialDir = this.trialDir(input);
     await mkdir(trialDir, { recursive: true });
     await this.writeProcessDiagnostics(trialDir, input);
     await this.writeUsage(trialDir, input);
-    const transcriptPath = input.transcriptPath ?? await transcriptPathFromHookSpool(input.hookSpoolPath);
+    const transcriptResolution = await this.transcriptResolver.resolve({
+      harness: input.harness,
+      runId: input.runId,
+      trialId: input.trialId,
+      workspace: input.workspace,
+      hookSpoolPath: input.hookSpoolPath,
+      harnessTranscriptPath: input.transcriptPath,
+      processDiagnostics: input.processDiagnostics
+    });
 
     const candidates: readonly ArtifactCandidate[] = [
       {
@@ -49,13 +64,15 @@ export class FilesystemArtifactFinalizer implements ArtifactFinalizerPort {
         ref: "hooks.jsonl",
         kind: "hook_spool",
         sourcePath: input.hookSpoolPath,
-        unavailableReason: "hook spool was not found"
+        unavailableReason: "hook spool was not found",
+        requiredWhenStrict: true
       },
       {
         ref: "transcript.jsonl",
         kind: "transcript",
-        sourcePath: resolveWorkspacePath(input.workspace, transcriptPath),
-        unavailableReason: "transcript path was not exposed"
+        sourcePath: transcriptResolution.transcriptPath,
+        unavailableReason: transcriptResolution.unavailableReason ?? "transcript path was not exposed",
+        requiredWhenStrict: true
       },
       {
         ref: "diff.patch",
@@ -109,6 +126,10 @@ export class FilesystemArtifactFinalizer implements ArtifactFinalizerPort {
     strictTelemetry: boolean
   ): Promise<ArtifactIndexEntry> {
     if (candidate.sourcePath === undefined) {
+      if (strictTelemetry && candidate.requiredWhenStrict === true) {
+        throw new Error(`artifact ${candidate.ref} could not be finalized: ${candidate.unavailableReason}`);
+      }
+
       return missingEntry(candidate);
     }
 
@@ -211,37 +232,4 @@ function errorMessage(error: unknown): string {
 function isInsideDirectory(directory: string, path: string): boolean {
   const relativePath = relative(directory, path);
   return relativePath.length === 0 || (!relativePath.startsWith("..") && !isAbsolute(relativePath));
-}
-
-async function transcriptPathFromHookSpool(hookSpoolPath: string | undefined): Promise<string | undefined> {
-  if (hookSpoolPath === undefined) {
-    return undefined;
-  }
-
-  try {
-    const lines = (await readFile(hookSpoolPath, "utf8")).split("\n").filter((line) => line.trim().length > 0);
-
-    for (const line of lines) {
-      const parsed = JSON.parse(line) as {
-        transcript_path?: unknown;
-        transcriptPath?: unknown;
-        payload?: {
-          transcript_path?: unknown;
-          transcriptPath?: unknown;
-        };
-      };
-      const transcriptPath = parsed.transcript_path
-        ?? parsed.transcriptPath
-        ?? parsed.payload?.transcript_path
-        ?? parsed.payload?.transcriptPath;
-
-      if (typeof transcriptPath === "string" && transcriptPath.length > 0) {
-        return transcriptPath;
-      }
-    }
-  } catch {
-    return undefined;
-  }
-
-  return undefined;
 }

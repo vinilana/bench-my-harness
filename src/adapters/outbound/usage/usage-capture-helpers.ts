@@ -142,12 +142,40 @@ export function tokenTotalFromUsage(record: UnknownRecord): number | undefined {
     ?? nestedNumber(record, ["message", "usage", "input_tokens"]);
   const output = nestedNumber(record, ["usage", "output_tokens"])
     ?? nestedNumber(record, ["message", "usage", "output_tokens"]);
+  const cacheCreation = nestedNumber(record, ["usage", "cache_creation_input_tokens"])
+    ?? nestedNumber(record, ["message", "usage", "cache_creation_input_tokens"])
+    ?? cacheCreationBreakdownTotal(record, ["usage", "cache_creation"])
+    ?? cacheCreationBreakdownTotal(record, ["message", "usage", "cache_creation"]);
+  const cacheRead = nestedNumber(record, ["usage", "cache_read_input_tokens"])
+    ?? nestedNumber(record, ["message", "usage", "cache_read_input_tokens"]);
 
-  if (input !== undefined || output !== undefined) {
-    return (input ?? 0) + (output ?? 0);
+  if (input !== undefined || output !== undefined || cacheCreation !== undefined || cacheRead !== undefined) {
+    return (input ?? 0) + (output ?? 0) + (cacheCreation ?? 0) + (cacheRead ?? 0);
   }
 
   return undefined;
+}
+
+function cacheCreationBreakdownTotal(record: UnknownRecord, keys: readonly string[]): number | undefined {
+  let current: unknown = record;
+
+  for (const key of keys) {
+    if (!isRecord(current)) {
+      return undefined;
+    }
+    current = current[key];
+  }
+
+  if (!isRecord(current)) {
+    return undefined;
+  }
+
+  const ephemeral5m = typeof current["ephemeral_5m_input_tokens"] === "number" ? current["ephemeral_5m_input_tokens"] : undefined;
+  const ephemeral1h = typeof current["ephemeral_1h_input_tokens"] === "number" ? current["ephemeral_1h_input_tokens"] : undefined;
+
+  return ephemeral5m === undefined && ephemeral1h === undefined
+    ? undefined
+    : (ephemeral5m ?? 0) + (ephemeral1h ?? 0);
 }
 
 export function unavailableValue(unit: string, captureSource: string, unavailableReason: string): UsageValueObservation {
@@ -363,7 +391,14 @@ function tokenCoverage(tokens: Omit<UsageReport["tokens"], never>): UsageCoverag
     return "unavailable";
   }
 
-  return tokens.input === null || tokens.output === null || tokens.cache_read === null || tokens.cache_write === null
+  return tokens.input === null
+    || tokens.input.value === null
+    || tokens.output === null
+    || tokens.output.value === null
+    || tokens.cache_read === null
+    || tokens.cache_read.value === null
+    || tokens.cache_write === null
+    || tokens.cache_write.value === null
     ? "partial"
     : "available";
 }

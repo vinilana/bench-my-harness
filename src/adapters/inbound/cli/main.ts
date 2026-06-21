@@ -31,6 +31,7 @@ import { FilesystemSpecCatalogStore } from "../../outbound/filesystem/filesystem
 import { ProcessGitHistoryInspector } from "../../outbound/git/process-git-history-inspector.js";
 import { FilesystemPromptFileReader } from "../../outbound/filesystem/filesystem-prompt-file-reader.js";
 import { FilesystemUsageCapture } from "../../outbound/usage/filesystem-usage-capture.js";
+import { FilesystemProviderTranscriptResolver } from "../../outbound/filesystem/filesystem-provider-transcript-resolver.js";
 import { BenchmarkSchema, type Benchmark } from "../../../domain/benchmark/benchmark-schema.js";
 import type { HarnessCommand } from "../../../domain/harnesses/harness-profile.js";
 import { ResolveBenchmarkPromptUseCase } from "../../../application/use-cases/resolve-benchmark-prompt.js";
@@ -278,6 +279,7 @@ export function buildProgram(context: CliContext): Command {
         validationRunner: options.runValidation ? new ProcessValidationRunner() : undefined,
         diffGenerator: options.dryRun ? undefined : new FilesystemGitDiffGenerator(),
         usageCapture: options.dryRun ? undefined : new FilesystemUsageCapture(),
+        transcriptResolver: options.dryRun ? undefined : new FilesystemProviderTranscriptResolver({ env: context.env }),
         artifactCollector: new DryRunArtifactCollector(),
         workspaceProvisioner: options.dryRun ? new DryRunWorkspaceProvisioner() : new FilesystemWorkspaceProvisioner(),
         promptResolver: new ResolveBenchmarkPromptUseCase(new FilesystemPromptFileReader())
@@ -614,6 +616,7 @@ export function buildProgram(context: CliContext): Command {
         diffGenerator: options.real === true ? new FilesystemGitDiffGenerator() : undefined,
         hookEventCounter: options.real === true ? new FilesystemHookEventCounter() : undefined,
         usageCapture: options.real === true ? new FilesystemUsageCapture() : undefined,
+        transcriptResolver: options.real === true ? new FilesystemProviderTranscriptResolver({ env: context.env }) : undefined,
         artifactCollector: new DryRunArtifactCollector(),
         workspaceProvisioner: options.real === true ? new FilesystemWorkspaceProvisioner() : new DryRunWorkspaceProvisioner(),
         promptResolver: new ResolveBenchmarkPromptUseCase(new FilesystemPromptFileReader())

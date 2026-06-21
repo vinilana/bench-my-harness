@@ -6,6 +6,7 @@ import type {
 } from "../../../application/ports/usage-capture-port.js";
 import { ClaudeCodeUsageCapture } from "./claude-code-usage-capture.js";
 import { CodexUsageCapture } from "./codex-usage-capture.js";
+import { parseOpenAiPricingMode } from "./openai-pricing.js";
 
 export class FilesystemUsageCapture implements NormalizedUsageCapturePort {
   public async capture(context: UsageCaptureContext): Promise<readonly MetricObservation[]> {
@@ -18,7 +19,7 @@ export class FilesystemUsageCapture implements NormalizedUsageCapturePort {
 
   private captureFor(context: UsageCaptureContext): NormalizedUsageCapturePort {
     return context.provider === "codex"
-      ? new CodexUsageCapture({})
+      ? new CodexUsageCapture({ openAiPricingMode: parseOpenAiPricingMode(process.env["BMH_OPENAI_PRICING_MODE"]) })
       : new ClaudeCodeUsageCapture({});
   }
 }

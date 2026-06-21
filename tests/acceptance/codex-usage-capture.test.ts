@@ -86,4 +86,75 @@ describe("Codex usage capture", () => {
       mcp: "partial"
     });
   });
+
+  test("aggregates Codex session transcript token counts, cached tokens, model, and pricing fallback", async () => {
+    const usageCapture = new CodexUsageCapture({
+      transcriptJsonlPath: resolve(fixtureRoot, "codex-session-transcript.jsonl")
+    });
+
+    const usage = await usageCapture.captureUsage({
+      provider: "codex",
+      runId: "run_usage_codex_transcript",
+      trialId: "trial_usage_codex_transcript"
+    });
+
+    expect(usage.llms).toEqual([expect.objectContaining({
+      model: "gpt-5.3-codex",
+      provider: "openai",
+      role: "primary",
+      measurement_source: "native",
+      capture_source: "codex_session_transcript",
+      confidence: "medium",
+      evidence_refs: ["codex-session-transcript.jsonl"]
+    })]);
+    expect(usage.tokens.total).toEqual(expect.objectContaining({
+      value: 10500,
+      unit: "tokens",
+      measurement_source: "native",
+      capture_source: "codex_session_transcript",
+      confidence: "medium",
+      evidence_refs: ["codex-session-transcript.jsonl"]
+    }));
+    expect(usage.tokens.input).toEqual(expect.objectContaining({ value: 10000 }));
+    expect(usage.tokens.output).toEqual(expect.objectContaining({ value: 500 }));
+    expect(usage.tokens.cache_read).toEqual(expect.objectContaining({ value: 4000 }));
+    expect(usage.tokens.cache_write).toEqual(expect.objectContaining({
+      value: null,
+      measurement_source: "unavailable",
+      capture_source: "codex_session_transcript",
+      unavailable_reason: "codex session transcript did not expose cache write usage"
+    }));
+    expect(usage.cost.total_usd.value).toBeCloseTo(0.0182, 12);
+    expect(usage.cost.total_usd).toEqual(expect.objectContaining({
+      unit: "usd",
+      measurement_source: "estimated",
+      capture_source: "codex_session_transcript_pricing",
+      confidence: "medium",
+      evidence_refs: ["codex-session-transcript.jsonl"]
+    }));
+    expect(usage.coverage.tokens).toBe("partial");
+    expect(usage.coverage.cost).toBe("available");
+  });
+
+  test("uses explicit priority pricing mode for Codex estimates", async () => {
+    const usageCapture = new CodexUsageCapture({
+      transcriptJsonlPath: resolve(fixtureRoot, "codex-session-transcript.jsonl"),
+      openAiPricingMode: "priority"
+    });
+
+    const usage = await usageCapture.captureUsage({
+      provider: "codex",
+      runId: "run_usage_codex_transcript_priority",
+      trialId: "trial_usage_codex_transcript_priority"
+    });
+
+    expect(usage.cost.total_usd.value).toBeCloseTo(0.0364, 12);
+    expect(usage.cost.total_usd).toEqual(expect.objectContaining({
+      unit: "usd",
+      measurement_source: "estimated",
+      capture_source: "codex_session_transcript_pricing",
+      confidence: "medium",
+      evidence_refs: ["codex-session-transcript.jsonl"]
+    }));
+  });
 });

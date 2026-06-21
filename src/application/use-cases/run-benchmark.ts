@@ -5,6 +5,7 @@ import type { HookInstallation, InstallHarnessHooksPort } from "../ports/install
 import type { HarnessName, HarnessRunnerPort, ProcessDiagnostics } from "../ports/harness-runner-port.js";
 import type { ValidationRunnerPort, ValidationRunnerResult } from "../ports/validation-runner-port.js";
 import type { NormalizedUsageCapturePort, UsageReport } from "../ports/usage-capture-port.js";
+import type { TrialTranscriptResolverPort } from "../ports/trial-transcript-resolver-port.js";
 import type {
   ProvisionWorkspaceInput,
   WorkspaceProvisionerPort,
@@ -110,6 +111,7 @@ export class BenchmarkRunner {
       diffGenerator?: DiffGeneratorPort;
       hookEventCounter?: HookEventCounterPort;
       usageCapture?: NormalizedUsageCapturePort;
+      transcriptResolver?: TrialTranscriptResolverPort;
       artifactCollector: ArtifactCollectorPort;
       workspaceProvisioner: WorkspaceProvisionerPort;
     }
@@ -175,7 +177,20 @@ export class BenchmarkRunner {
       let validationResult: ValidationRunnerResult | undefined;
       let testOutputPath = harnessResult.testOutputPath;
       let diffPath = harnessResult.diffPath;
-      artifactPaths.transcript_path = harnessResult.transcriptPath;
+      const transcriptResolution = await this.resolveTranscriptIfConfigured({
+        input,
+        workspace,
+        spoolPath,
+        harnessTranscriptPath: harnessResult.transcriptPath,
+        processDiagnostics: harnessResult.processDiagnostics
+      });
+      const resolvedTranscriptPath = transcriptResolution === undefined
+        ? harnessResult.transcriptPath
+        : transcriptResolution.transcriptPath;
+      const artifactCollectorTranscriptPath = transcriptResolution === undefined
+        ? harnessResult.transcriptPath
+        : transcriptResolution.workspaceLocalTranscriptPath;
+      artifactPaths.transcript_path = resolvedTranscriptPath;
 
       if (harnessSucceeded) {
         validationResult = await this.runValidationIfConfigured(input, workspace);
@@ -190,7 +205,7 @@ export class BenchmarkRunner {
         runId: input.runId,
         trialId: input.trialId,
         workspace,
-        transcriptPath: harnessResult.transcriptPath,
+        transcriptPath: artifactCollectorTranscriptPath,
         diffPath,
         testOutputPath
       });
@@ -199,7 +214,7 @@ export class BenchmarkRunner {
         input,
         workspace,
         spoolPath,
-        transcriptPath: harnessResult.transcriptPath,
+        transcriptPath: resolvedTranscriptPath,
         processDiagnostics: harnessResult.processDiagnostics
       });
 
@@ -282,6 +297,24 @@ export class BenchmarkRunner {
     return this.ports.hookEventCounter?.count({ spoolPath });
   }
 
+  private async resolveTranscriptIfConfigured(input: {
+    readonly input: RunTrialInput;
+    readonly workspace: string;
+    readonly spoolPath: string;
+    readonly harnessTranscriptPath?: string;
+    readonly processDiagnostics?: ProcessDiagnostics;
+  }) {
+    return this.ports.transcriptResolver?.resolve({
+      harness: input.input.harness,
+      runId: input.input.runId,
+      trialId: input.input.trialId,
+      workspace: input.workspace,
+      hookSpoolPath: input.spoolPath,
+      harnessTranscriptPath: input.harnessTranscriptPath,
+      processDiagnostics: input.processDiagnostics
+    });
+  }
+
   private async captureUsageIfConfigured(input: {
     readonly input: RunTrialInput;
     readonly workspace: string;
@@ -296,6 +329,7 @@ export class BenchmarkRunner {
       workspace: input.workspace,
       hookSpoolPath: input.spoolPath,
       transcriptPath: input.transcriptPath,
+      transcriptEvidenceRef: input.transcriptPath === undefined ? undefined : "transcript.jsonl",
       processStdout: input.processDiagnostics?.stdout,
       processStderr: input.processDiagnostics?.stderr
     });
@@ -424,6 +458,7 @@ function workspaceSourceFor(benchmark: BenchmarkDefinition): WorkspaceSource | u
     goldenRef: benchmark.repo.golden_ref
   };
 }
+
 
 function provisionWorkspaceInput(input: RunTrialInput, source: WorkspaceSource | undefined): ProvisionWorkspaceInput {
   const provisionInput: ProvisionWorkspaceInput = {

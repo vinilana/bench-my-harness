@@ -136,6 +136,10 @@ Every metric must include:
 - `confidence`
 - supporting event or artifact reference
 
+For Codex and Claude Code, BMH also reads local session transcript JSONL when it is available as a trial artifact. Codex transcript usage comes from native `token_count` records and can include input, output, cached input, and total tokens. Claude Code transcript usage deduplicates assistant message usage records and includes cache read/write tokens in totals. When native cost is missing, BMH falls back to embedded pricing for explicitly supported known models and labels the metric as estimated. Unknown OpenAI model variants remain unavailable instead of being priced through partial model-name matching.
+
+BMH does not scan provider session directories blindly. A provider-local transcript must be returned by the harness runner or referenced by a hook event, live under an approved Codex or Claude Code provider root, and pass lightweight trial identity checks before usage capture trusts it.
+
 ## Test Strategy
 
 BMH uses Spec Driven Development with TDD. Tests are written before production implementation.
@@ -322,6 +326,14 @@ node ./dist/adapters/inbound/cli/main.js run \
   --run-validation
 ```
 
+Codex usage capture is best effort. When a run artifact includes a Codex session transcript JSONL file, BMH can report model, input/output/cached-input/total tokens, and estimated cost for explicitly supported OpenAI models. Cache write tokens remain unavailable unless Codex exposes them directly.
+
+OpenAI cost estimates default to Standard pricing. Set `BMH_OPENAI_PRICING_MODE=priority` when the benchmark should estimate Codex usage with Priority pricing:
+
+```bash
+BMH_OPENAI_PRICING_MODE=priority bench-my-harness suite run --real --harness codex
+```
+
 During the run, BMH writes project-local Codex hook configuration inside the isolated trial workspace and points hooks at `bench-my-harness hook-capture --provider codex`.
 
 ### 5. Run Claude Code
@@ -340,6 +352,8 @@ node ./dist/adapters/inbound/cli/main.js run \
 ```
 
 During the run, BMH writes project-local Claude Code hook configuration inside the isolated trial workspace and points hooks at `bench-my-harness hook-capture --provider claude_code`.
+
+Claude Code usage capture is best effort. When a run artifact includes a Claude transcript JSONL file, BMH can report model, input/output/cache/total tokens, and cost. Cost is native when Claude provides `costUSD`; otherwise BMH estimates known Claude models from embedded pricing and marks the value as estimated.
 
 ### 6. Capture a hook event directly
 
