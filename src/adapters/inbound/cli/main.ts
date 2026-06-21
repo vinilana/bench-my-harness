@@ -58,7 +58,7 @@ import {
 
 const EX_USAGE = 1;
 const EX_CONFIG = 78;
-const REMOVED_PUBLIC_COMMANDS = new Set(["benchmark", "import", "doctor", "smoke"]);
+const REMOVED_PUBLIC_COMMANDS = new Set(["benchmark", "import", "doctor"]);
 
 export interface CliRuntime {
   readonly stdin?: string;
@@ -172,7 +172,6 @@ export function buildProgram(context: CliContext): Command {
   addRemovedCommand(program, "benchmark");
   addRemovedCommand(program, "import");
   addRemovedCommand(program, "doctor");
-  addRemovedCommand(program, "smoke");
 
   internal
     .command("hook-capture")

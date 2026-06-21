@@ -22,7 +22,6 @@ describe("public CLI surface", () => {
     expect(output.stdout()).toContain("report");
     expect(output.stdout()).toContain("check");
     expect(output.stdout()).not.toMatch(/^\s+benchmark\b/m);
-    expect(output.stdout()).not.toMatch(/^\s+smoke\b/m);
     expect(output.stdout()).not.toMatch(/^\s+import\b/m);
     expect(output.stdout()).not.toMatch(/^\s+doctor\b/m);
     expect(output.stdout()).not.toContain("hook-capture");

@@ -7,7 +7,7 @@ behavior, plus a hidden internal layer:
 
 | Layer | Unit of work | Commands |
 | --- | --- | --- |
-| Catalog / suite (top-level) | `.bmh/specs/` — a collection of specs run as a suite across N harnesses x M trials | `init`, `add`, `import`, `doctor`, `run`, `smoke`, `report` |
+| Catalog / suite (top-level) | `.bmh/specs/` — a collection of specs run as a suite across N harnesses x M trials | `init`, `add`, `import`, `doctor`, `run`, `report` |
 | `benchmark` namespace | a single standalone benchmark JSON file, one trial | `benchmark init`, `benchmark validate`, `benchmark run` |
 | `internal` (hidden) | one hook event | `hook-capture` |
 
@@ -15,12 +15,12 @@ The split causes real UX problems:
 
 - `init` is overloaded: `init` (create a catalog) vs `benchmark init` (create a benchmark file).
 - `run` is overloaded: `run` (run a suite) vs `benchmark run` (run one trial).
-- `smoke` is not its own concept — it is `run` wired to dry-run adapters with one trial (`main.ts:695`).
+- Dry suite execution is not its own concept — it is `run` wired to dry-run adapters with one trial (`main.ts:695`).
 - `add [promptFile]` and `import <promptFiles...>` differ only in arity.
 - Validation is split: `benchmark validate` exists, but catalog validation lives in `doctor`.
 
 A new user cannot tell from `bmh --help` whether they want `init` or `benchmark init`,
-or why `run`, `smoke`, and `benchmark run` all "run" things.
+or why both `run` and `benchmark run` appear to "run" things.
 
 There are no external users yet, so this is a clean cut: remove the redundant surface
 outright with no aliases and no deprecation window.
@@ -41,7 +41,7 @@ the hexagonal layering better than a second command tree.
 bmh init                 set up the catalog + authoring defaults (interactive by default)
 bmh add [files...]       create one or more specs; absorbs `import` and `--from-git`
 bmh run                  run the suite by default
-                           --dry-run         absorbs `smoke`
+                           --dry-run         dry suite execution
                            --benchmark FILE  run a single standalone benchmark (absorbs `benchmark run`)
 bmh check [path]         validate catalog and/or a benchmark file (absorbs `doctor` + `benchmark validate`)
 bmh report               render a run report (unchanged)
@@ -49,7 +49,7 @@ bmh internal hook-capture   hidden, unchanged
 ```
 
 Removed outright: the `benchmark` parent command and its `init` / `validate` / `run`
-subcommands; the top-level `smoke`; the top-level `import`; the top-level `doctor`
+subcommands; the top-level `import`; the top-level `doctor`
 (renamed to `check`).
 
 ## Command Mapping
@@ -64,7 +64,6 @@ subcommands; the top-level `smoke`; the top-level `import`; the top-level `docto
 | `doctor` | `bmh check` | catalog readiness |
 | `benchmark validate <path>` | `bmh check <path>` | validate a single benchmark file when a path is given |
 | `run` (suite) | `bmh run` | default mode |
-| `smoke` | `bmh run --dry-run` | one-trial dry run is a flag combination, not a command |
 | `benchmark run` | `bmh run --benchmark FILE` | single-file mode of the same verb |
 | `report` | `bmh report` | unchanged |
 
@@ -76,7 +75,7 @@ both.
 
 - no `--benchmark` flag: run the catalog suite (old `run`).
 - `--benchmark FILE`: run that single benchmark (old `benchmark run`).
-- `--dry-run`: use dry-run adapters; with the suite this is the old `smoke`.
+- `--dry-run`: use dry-run adapters for suite execution.
 
 ## Interactive Mode
 
@@ -139,14 +138,14 @@ Build on the harness in spec 23 (`runCli(argv, runtime)` with captured streams a
 injectable TTY flag). Required tests:
 
 1. `bmh --help` lists exactly the five public verbs and hides `internal`; it does not
-   list `benchmark`, `smoke`, `import`, or `doctor`.
-2. The removed commands (`benchmark`, `benchmark init/validate/run`, `smoke`, `import`,
+   list `benchmark`, `import`, or `doctor`.
+2. The removed commands (`benchmark`, `benchmark init/validate/run`, `import`,
    `doctor`) exit non-zero as unknown commands.
 3. `bmh add` accepts multiple files and a glob, producing the same specs the old
    `import` produced (port the old `import` assertions onto `add`).
 4. `bmh run --benchmark FILE` reproduces the old `benchmark run` behavior, including
    dry-run.
-5. `bmh run --dry-run` reproduces the old `smoke` output (one-trial dry suite).
+5. `bmh run --dry-run` produces a one-trial dry suite run.
 6. `bmh check` validates the catalog; `bmh check <path>` validates a benchmark file;
    each rejects invalid input with a clear message.
 7. **Interactive**: with TTY on and a required value omitted, the prompt fires and the
@@ -168,7 +167,7 @@ injectable TTY flag). Required tests:
 ## Documentation Updates
 
 - Rewrite the `README.md` command sections and the "Current CLI surface" block around
-  the five verbs; remove all `benchmark *`, `smoke`, `import`, and `doctor` examples.
+  the five verbs; remove all `benchmark *`, `import`, and `doctor` examples.
 - Update `CHANGELOG.md` with the breaking surface change (pre-1.0, no migration path).
 - Revisit spec 23's coverage matrix: error-path tests for removed commands move onto the
   consolidated verbs; the `add --from-git` required-option fix carries over unchanged.

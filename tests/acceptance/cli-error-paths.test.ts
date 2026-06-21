@@ -93,8 +93,6 @@ describe("CLI error paths", () => {
       ["benchmark", "validate", "benchmark.json"],
       ["benchmark", "run"],
       ["benchmark", "--help"],
-      ["smoke"],
-      ["smoke", "--help"],
       ["import", "docs/specs/*.md"],
       ["import", "--help"],
       ["doctor"]
