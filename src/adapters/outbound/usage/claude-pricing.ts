@@ -40,6 +40,12 @@ const CLAUDE_PRICING: Record<string, ClaudePricing> = {
     cacheCreate: 3.75e-6,
     cacheRead: 0.3e-6
   },
+  "claude-sonnet-4-6": {
+    input: 3e-6,
+    output: 15e-6,
+    cacheCreate: 3.75e-6,
+    cacheRead: 0.3e-6
+  },
   "claude-haiku-4-5": {
     input: 1e-6,
     output: 5e-6,
@@ -57,6 +63,18 @@ const CLAUDE_PRICING: Record<string, ClaudePricing> = {
     output: 25e-6,
     cacheCreate: 6.25e-6,
     cacheRead: 0.5e-6
+  },
+  "claude-opus-4-8": {
+    input: 5e-6,
+    output: 25e-6,
+    cacheCreate: 6.25e-6,
+    cacheRead: 0.5e-6
+  },
+  "claude-fable-5": {
+    input: 10e-6,
+    output: 50e-6,
+    cacheCreate: 12.5e-6,
+    cacheRead: 1e-6
   }
 };
 
