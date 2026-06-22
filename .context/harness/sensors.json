@@ -1,0 +1,49 @@
+{
+  "version": 1,
+  "generatedAt": "2026-06-22T00:01:27.411Z",
+  "source": "manual",
+  "stack": {
+    "primaryLanguage": "typescript",
+    "languages": [
+      "javascript",
+      "typescript"
+    ],
+    "frameworks": [
+      "commander",
+      "zod"
+    ],
+    "buildTools": [
+      "tsc"
+    ],
+    "testFrameworks": [
+      "vitest"
+    ],
+    "packageManager": "npm"
+  },
+  "sensors": [
+    {
+      "id": "typecheck",
+      "name": "Typecheck",
+      "description": "Strict TypeScript type checking with no emit (tsc -p tsconfig.json --noEmit).",
+      "severity": "critical",
+      "command": "npm run typecheck",
+      "script": "typecheck"
+    },
+    {
+      "id": "test",
+      "name": "Test",
+      "description": "Run the Vitest suite once (vitest run). Must never invoke real Codex or Claude Code.",
+      "severity": "critical",
+      "command": "npm test",
+      "script": "test"
+    },
+    {
+      "id": "build",
+      "name": "Build",
+      "description": "Compile TypeScript sources to dist/ and emit the bmh CLI entrypoint.",
+      "severity": "critical",
+      "command": "npm run build",
+      "script": "build"
+    }
+  ]
+}

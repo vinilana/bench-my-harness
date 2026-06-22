@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "defaultEffect": "allow",
+  "rules": [
+    {
+      "id": "protect-repository-core",
+      "effect": "require_approval",
+      "when": {
+        "paths": [
+          "src/**"
+        ],
+        "risk": "high"
+      },
+      "reason": "High-risk changes to core typescript paths require approval."
+    },
+    {
+      "id": "protect-repository-config",
+      "effect": "require_approval",
+      "when": {
+        "paths": [
+          "package-lock.json",
+          "package.json",
+          "tsconfig.json"
+        ],
+        "risk": "high"
+      },
+      "reason": "High-risk changes to repository automation and build configuration require approval."
+    },
+    {
+      "id": "block-secrets",
+      "effect": "deny",
+      "when": {
+        "paths": [
+          "**/.env*",
+          "**/*.pem",
+          "**/*.key",
+          "**/*secret*"
+        ]
+      },
+      "reason": "Secret-like files are blocked by policy."
+    }
+  ]
+}

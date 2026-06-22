@@ -6,3 +6,17 @@ coverage/
 !.bmh/specs/
 !.bmh/specs/**
 *.log
+
+# dotcontext runtime state
+.context/plans/
+.context/cache/semantic/
+.context/workflow/
+.context/harness/sessions/
+.context/harness/traces/
+.context/harness/artifacts/
+.context/harness/contracts/
+.context/harness/workflows/
+.context/harness/replays/
+.context/harness/datasets/
+.context/**/archive/
+
