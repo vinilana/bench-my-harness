@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 import { access, chmod, mkdir, readFile, readdir, realpath, stat, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
-import { createInterface } from "node:readline/promises";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { Command, CommanderError } from "commander";
 import { z } from "zod";
@@ -55,6 +54,9 @@ import {
   InteractiveBenchmarkAuthoring,
   type BenchmarkAuthoringCommand
 } from "./interactive-benchmark-authoring.js";
+import { PromptCancelledError, type Prompter } from "./prompter.js";
+import { ScriptedPrompter } from "./scripted-prompter.js";
+import { ClackPrompter } from "./clack-prompter.js";
 
 const EX_USAGE = 1;
 const EX_CONFIG = 78;
@@ -78,6 +80,8 @@ interface CliContext {
   readonly env: NodeJS.ProcessEnv;
   readonly question?: (label: string) => string | Promise<string>;
   readonly canPromptInteractively: boolean;
+  readonly canUseProcessStdio: boolean;
+  readonly prompter: Prompter;
 }
 
 class CliExit extends Error {
@@ -104,14 +108,26 @@ export async function runCli(argv = process.argv, runtime: CliRuntime = {}): Pro
     process.stdin.isTTY === true &&
     process.stdout.isTTY === true
   );
+  const stdin = runtime.stdin ?? (hasInjectedRuntime || process.stdin.isTTY ? "" : await readStdin());
+  const stdout = runtime.stdout ?? ((chunk: string) => process.stdout.write(chunk));
+  const canUseProcessStdio = !hasInjectedRuntime;
+  // Real terminals drive the rich Clack UI; tests and non-TTY contexts use the deterministic
+  // scripted prompter. @clack/prompts renders to the live terminal, so it is only ever
+  // constructed when the process owns stdio.
+  const prompter: Prompter =
+    runtimeIsTty && canUseProcessStdio && runtime.stdin === undefined && runtime.question === undefined
+      ? new ClackPrompter()
+      : new ScriptedPrompter({ answers: stdin.split(/\r?\n/), stdout });
   const context: CliContext = {
-    stdin: runtime.stdin ?? (hasInjectedRuntime || process.stdin.isTTY ? "" : await readStdin()),
-    stdout: runtime.stdout ?? ((chunk) => process.stdout.write(chunk)),
+    stdin,
+    stdout,
     stderr: runtime.stderr ?? ((chunk) => process.stderr.write(chunk)),
     cwd: runtime.cwd ?? process.cwd(),
     env: runtime.env ?? process.env,
     question: runtime.question,
-    canPromptInteractively: runtimeIsTty
+    canPromptInteractively: runtimeIsTty,
+    canUseProcessStdio,
+    prompter
   };
   const program = buildProgram(context);
 
@@ -140,6 +156,11 @@ export async function runCli(argv = process.argv, runtime: CliRuntime = {}): Pro
 
     if (error instanceof CommanderError) {
       return error.exitCode;
+    }
+
+    if (error instanceof PromptCancelledError) {
+      context.stderr("cancelled\n");
+      return EX_USAGE;
     }
 
     const message = error instanceof Error ? error.message : String(error);
@@ -772,92 +793,169 @@ function addRemovedCommand(program: Command, name: string): void {
   });
 }
 
+const MENU_OPTIONS = [
+  { value: "init", label: "Set up a catalog" },
+  { value: "add", label: "Add a spec" },
+  { value: "run", label: "Run" },
+  { value: "check", label: "Check" },
+  { value: "report", label: "View report" },
+  { value: "quit", label: "Quit" }
+] as const;
+
+type MenuChoice = (typeof MENU_OPTIONS)[number]["value"];
+
 async function runInteractiveMenu(context: CliContext): Promise<void> {
-  const choices = ["Set up a catalog", "Add a spec", "Run", "Check", "View report"];
-  context.stdout(`${choices.join("\n")}\n`);
+  context.prompter.intro("bmh");
 
-  if (context.stdin.trim().length === 0 && context.question === undefined) {
-    return;
-  }
-
-  const stdinLines = context.stdin.split(/\r?\n/);
-  const answer = context.question
-    ? await context.question("Action")
-    : stdinLines[0] ?? "";
-  const branchContext = context.question
-    ? context
-    : {
-        ...context,
-        stdin: stdinLines.slice(1).join("\n")
-      };
-  const normalized = answer.trim().toLowerCase();
-  if (normalized.length === 0) {
-    return;
-  }
-
-  if (["1", "init", "set up a catalog", "setup"].includes(normalized)) {
-    const catalogRoot = resolvePath(context.cwd, ".bmh/specs");
-    const catalog = await new CreateSpecCatalogUseCase(new FilesystemSpecCatalogStore()).execute({
-      catalogRoot,
-      force: false
-    });
-    context.stdout(`spec catalog initialized: ${resolvePath(catalogRoot, "suite.json")} (${catalog.id}@${catalog.version})\n`);
-    return;
-  }
-
-  if (["2", "add", "add a spec"].includes(normalized)) {
-    const command = normalizeInteractiveCommand(await collectInteractiveBenchmarkCommand(branchContext), context.cwd);
-    if (command.repoUrl === undefined) {
-      throw new Error("add interactive mode requires a repo source");
+  for (;;) {
+    let choice: MenuChoice;
+    try {
+      choice = await context.prompter.select<MenuChoice>({
+        message: "Select an action",
+        options: MENU_OPTIONS,
+        initialValue: "quit"
+      });
+    } catch (error) {
+      // A cancel (Ctrl+C / Esc / exhausted script) ends the session cleanly.
+      if (error instanceof PromptCancelledError) {
+        return;
+      }
+      throw error;
     }
 
-    const catalogRoot = resolvePath(context.cwd, ".bmh/specs");
-    const defaults = await loadSpecDefaults(catalogRoot);
-    const draft = await new CreateFeatureSpecUseCase(new FilesystemSpecCatalogStore()).execute({
-      catalogRoot,
-      repoUrl: command.repoUrl,
-      id: command.id,
-      name: command.name,
-      category: parseCategory(command.category),
-      setupCommands: command.setupCommands,
-      testCommands: command.testCommands,
-      promptMarkdown: await promptMarkdownFromInteractiveCommand(command, context.cwd),
-      constraints: command.constraints,
-      timeoutSeconds: command.timeoutSeconds,
-      maxCostUsd: command.maxCostUsd,
-      requiredFilesChanged: command.requiredFilesChanged,
-      forbiddenFilesChanged: command.forbiddenFilesChanged,
-      semanticRequirements: command.semanticRequirements,
-      metadata: {
-        source: "manual_cli",
-        source_prompt_file: command.promptFile
-      },
-      includeInSuite: defaults?.include_in_suite ?? true,
-      force: false
-    });
-    context.stdout(`spec created: ${resolvePath(catalogRoot, draft.benchmarkPath)}\n`);
+    if (choice === "quit") {
+      return;
+    }
+
+    try {
+      await dispatchMenuChoice(choice, context);
+    } catch (error) {
+      if (error instanceof PromptCancelledError) {
+        // The action was cancelled; keep the menu alive.
+        continue;
+      }
+      // Keep the session alive: report the failure and re-display the menu.
+      context.stderr(`${error instanceof Error ? error.message : String(error)}\n`);
+    }
+  }
+}
+
+async function dispatchMenuChoice(choice: MenuChoice, context: CliContext): Promise<void> {
+  switch (choice) {
+    case "init": {
+      const catalogRoot = resolvePath(context.cwd, ".bmh/specs");
+      const catalog = await new CreateSpecCatalogUseCase(new FilesystemSpecCatalogStore()).execute({
+        catalogRoot,
+        force: false
+      });
+      context.stdout(`spec catalog initialized: ${resolvePath(catalogRoot, "suite.json")} (${catalog.id}@${catalog.version})\n`);
+      return;
+    }
+    case "add":
+      await runInteractiveAdd(context);
+      return;
+    case "run":
+      await runInteractiveRun(context);
+      return;
+    case "check": {
+      const loaded = await new LoadSpecCatalogUseCase(new FilesystemSpecCatalogStore()).execute({
+        catalogRoot: resolvePath(context.cwd, ".bmh/specs")
+      });
+      context.stdout(`spec catalog: valid ${loaded.catalog.id}@${loaded.catalog.version} (${loaded.specs.length} specs)\n`);
+      return;
+    }
+    case "report":
+      await runInteractiveReport(context);
+      return;
+    default:
+      return;
+  }
+}
+
+async function runInteractiveAdd(context: CliContext): Promise<void> {
+  const command = normalizeInteractiveCommand(await collectInteractiveBenchmarkCommand(context), context.cwd);
+  if (command.repoUrl === undefined) {
+    throw new Error("add interactive mode requires a repo source");
+  }
+
+  const catalogRoot = resolvePath(context.cwd, ".bmh/specs");
+  const defaults = await loadSpecDefaults(catalogRoot);
+  const draft = await new CreateFeatureSpecUseCase(new FilesystemSpecCatalogStore()).execute({
+    catalogRoot,
+    repoUrl: command.repoUrl,
+    id: command.id,
+    name: command.name,
+    category: parseCategory(command.category),
+    setupCommands: command.setupCommands,
+    testCommands: command.testCommands,
+    promptMarkdown: await promptMarkdownFromInteractiveCommand(command, context.cwd),
+    constraints: command.constraints,
+    timeoutSeconds: command.timeoutSeconds,
+    maxCostUsd: command.maxCostUsd,
+    requiredFilesChanged: command.requiredFilesChanged,
+    forbiddenFilesChanged: command.forbiddenFilesChanged,
+    semanticRequirements: command.semanticRequirements,
+    metadata: {
+      source: "manual_cli",
+      source_prompt_file: command.promptFile
+    },
+    includeInSuite: defaults?.include_in_suite ?? true,
+    force: false
+  });
+  context.stdout(`spec created: ${resolvePath(catalogRoot, draft.benchmarkPath)}\n`);
+}
+
+async function runInteractiveRun(context: CliContext): Promise<void> {
+  const mode = await context.prompter.select({
+    message: "Run mode",
+    options: [
+      { value: "dry-run", hint: "fake harness, no processes" },
+      { value: "real", hint: "run real harness processes" }
+    ] as const,
+    initialValue: "dry-run"
+  });
+  await dispatchProgram(context, ["run", mode === "real" ? "--real" : "--dry-run"]);
+}
+
+async function runInteractiveReport(context: CliContext): Promise<void> {
+  const runId = (await context.prompter.text({
+    message: "Run id (leave blank to provide an input path instead)"
+  })).trim();
+
+  if (runId.length > 0) {
+    const format = await chooseReportFormat(context);
+    await dispatchProgram(context, ["report", "--run-id", runId, "--format", format]);
     return;
   }
 
-  if (["3", "run"].includes(normalized)) {
-    context.stdout("run requires choosing --dry-run or --real from the command line\n");
-    return;
+  const input = (await context.prompter.text({ message: "Report JSON input path" })).trim();
+  if (input.length === 0) {
+    throw new Error("report requires a run id or an input path");
   }
 
-  if (["4", "check"].includes(normalized)) {
-    const loaded = await new LoadSpecCatalogUseCase(new FilesystemSpecCatalogStore()).execute({
-      catalogRoot: resolvePath(context.cwd, ".bmh/specs")
-    });
-    context.stdout(`spec catalog: valid ${loaded.catalog.id}@${loaded.catalog.version} (${loaded.specs.length} specs)\n`);
-    return;
-  }
+  const format = await chooseReportFormat(context);
+  await dispatchProgram(context, ["report", "--input", input, "--format", format]);
+}
 
-  if (["5", "report", "view report"].includes(normalized)) {
-    context.stdout("report requires --input <path> or --run-id <id> from the command line\n");
-    return;
-  }
+async function chooseReportFormat(context: CliContext): Promise<string> {
+  return context.prompter.select({
+    message: "Format",
+    options: [{ value: "text" }, { value: "html" }] as const,
+    initialValue: "text"
+  });
+}
 
-  throw new Error(`unknown menu choice: ${answer}`);
+async function dispatchProgram(context: CliContext, args: readonly string[]): Promise<void> {
+  const program = buildProgram(context);
+  try {
+    await program.parseAsync(["node", "bmh", ...args], { from: "node" });
+  } catch (error) {
+    if (error instanceof CliExit || error instanceof CommanderError) {
+      // The command already reported the failure to stderr; keep the menu alive.
+      return;
+    }
+    throw error;
+  }
 }
 
 interface HookCaptureCommandOptions {
@@ -1138,48 +1236,8 @@ function globSegmentMatcher(segment: string): RegExp {
 }
 
 async function collectInteractiveBenchmarkCommand(context: CliContext): Promise<BenchmarkAuthoringCommand> {
-  if (context.question) {
-    return new InteractiveBenchmarkAuthoring({
-      question: context.question,
-      stdout: context.stdout,
-      generateCommands: (repoPath) => generateProjectCommands(context.cwd, repoPath),
-      isLocalRepoPath,
-      defaults: await loadSpecDefaults(resolvePath(context.cwd, ".bmh/specs"))
-    }).collect();
-  }
-
-  if (context.canPromptInteractively && context.stdin.length > 0) {
-    return new InteractiveBenchmarkAuthoring({
-      stdin: context.stdin,
-      stdout: context.stdout,
-      generateCommands: (repoPath) => generateProjectCommands(context.cwd, repoPath),
-      isLocalRepoPath,
-      defaults: await loadSpecDefaults(resolvePath(context.cwd, ".bmh/specs"))
-    }).collect();
-  }
-
-  if (context.canPromptInteractively) {
-    const readline = createInterface({
-      input: process.stdin,
-      output: process.stdout
-    });
-
-    try {
-      return await new InteractiveBenchmarkAuthoring({
-        stdout: context.stdout,
-        question: () => readline.question(""),
-        generateCommands: (repoPath) => generateProjectCommands(context.cwd, repoPath),
-        isLocalRepoPath,
-        defaults: await loadSpecDefaults(resolvePath(context.cwd, ".bmh/specs"))
-      }).collect();
-    } finally {
-      readline.close();
-    }
-  }
-
   return new InteractiveBenchmarkAuthoring({
-    stdin: context.stdin,
-    stdout: context.stdout,
+    prompter: context.prompter,
     generateCommands: (repoPath) => generateProjectCommands(context.cwd, repoPath),
     isLocalRepoPath,
     defaults: await loadSpecDefaults(resolvePath(context.cwd, ".bmh/specs"))

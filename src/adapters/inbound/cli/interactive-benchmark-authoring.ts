@@ -4,6 +4,7 @@ import {
   type BenchmarkCategory
 } from "../../../domain/benchmark/benchmark-schema.js";
 import type { SpecCatalogDefaults } from "../../../domain/benchmark/spec-catalog.js";
+import { PromptCancelledError, type Prompter, type SelectOption } from "./prompter.js";
 
 export interface BenchmarkAuthoringCommand {
   readonly id: string;
@@ -25,9 +26,7 @@ export interface BenchmarkAuthoringCommand {
 }
 
 export interface InteractiveBenchmarkAuthoringOptions {
-  readonly stdin?: string;
-  readonly stdout?: (chunk: string) => void;
-  readonly question?: (label: string) => string | Promise<string>;
+  readonly prompter: Prompter;
   readonly generateCommands?: (repoUrlOrPath: string) => Promise<{
     readonly setupCommands: readonly string[];
     readonly testCommands: readonly string[];
@@ -37,22 +36,24 @@ export interface InteractiveBenchmarkAuthoringOptions {
 }
 
 export class InteractiveBenchmarkAuthoring {
-  private readonly answers: string[];
-  private index = 0;
-
-  public constructor(private readonly options: InteractiveBenchmarkAuthoringOptions) {
-    const normalized = (options.stdin ?? "").replace(/\r\n/g, "\n");
-    this.answers = normalized.split("\n");
-
-    if (this.answers.at(-1) === "") {
-      this.answers.pop();
-    }
-  }
+  public constructor(private readonly options: InteractiveBenchmarkAuthoringOptions) {}
 
   public async collect(): Promise<BenchmarkAuthoringCommand> {
+    const prompter = this.options.prompter;
     const identity = generateDefaultSpecIdentity();
-    const category = await this.choose("Category", categoryOptions(), this.options.defaults?.category ?? "feature");
-    const source = await this.choose("Source", ["repo", "fixture"], "repo");
+    const category = await prompter.select<BenchmarkCategory>({
+      message: "Category",
+      options: categoryOptions(),
+      initialValue: this.options.defaults?.category ?? "feature"
+    });
+    const source = await prompter.select({
+      message: "Source",
+      options: [
+        { value: "repo", hint: "local path or git URL" },
+        { value: "fixture", hint: "fixture directory" }
+      ] as const,
+      initialValue: "repo"
+    });
 
     let repoUrl: string | undefined;
     let fixturePath: string | undefined;
@@ -61,51 +62,61 @@ export class InteractiveBenchmarkAuthoring {
     let testCommands: readonly string[];
 
     if (source === "repo") {
-      repoUrl = await this.required("Repo URL or path", this.options.defaults?.repo_path ?? ".");
-      commit = optional(await this.ask("Commit"));
+      repoUrl = await prompter.text({
+        message: "Repo URL or path",
+        defaultValue: this.options.defaults?.repo_path ?? "."
+      });
+      commit = optional(await prompter.text({ message: "Commit" }));
       const generatedCommands = await this.tryGenerateCommands(repoUrl);
       setupCommands = generatedCommands?.setupCommands ?? parseList(
-        await this.ask("Setup commands", formatList(this.options.defaults?.setup_commands)),
+        await prompter.text({ message: "Setup commands", defaultValue: formatList(this.options.defaults?.setup_commands) }),
         this.options.defaults?.setup_commands
       );
       testCommands = generatedCommands?.testCommands ?? parseList(
-        await this.ask("Test commands", formatList(this.options.defaults?.test_commands)),
-        this.options.defaults?.test_commands
-      );
-    } else if (source === "fixture") {
-      fixturePath = await this.required("Fixture path");
-      setupCommands = parseList(
-        await this.ask("Setup commands", formatList(this.options.defaults?.setup_commands)),
-        this.options.defaults?.setup_commands
-      );
-      testCommands = parseList(
-        await this.ask("Test commands", formatList(this.options.defaults?.test_commands)),
+        await prompter.text({ message: "Test commands", defaultValue: formatList(this.options.defaults?.test_commands) }),
         this.options.defaults?.test_commands
       );
     } else {
-      throw new Error("source must be repo or fixture");
+      fixturePath = await prompter.text({ message: "Fixture path", validate: requireNonEmpty("fixture path") });
+      setupCommands = parseList(
+        await prompter.text({ message: "Setup commands", defaultValue: formatList(this.options.defaults?.setup_commands) }),
+        this.options.defaults?.setup_commands
+      );
+      testCommands = parseList(
+        await prompter.text({ message: "Test commands", defaultValue: formatList(this.options.defaults?.test_commands) }),
+        this.options.defaults?.test_commands
+      );
     }
 
-    const promptSource = await this.choose("Prompt source", ["text", "file"], "text");
+    const promptSource = await prompter.select({
+      message: "Prompt source",
+      options: [
+        { value: "text", hint: "type the prompt inline" },
+        { value: "file", hint: "reference a Markdown file" }
+      ] as const,
+      initialValue: "text"
+    });
     let promptText: string | undefined;
     let promptFile: string | undefined;
 
     if (promptSource === "text") {
-      promptText = await this.required("Prompt text");
-    } else if (promptSource === "file") {
-      promptFile = await this.required("Prompt Markdown file");
+      promptText = await prompter.text({ message: "Prompt text", validate: requireNonEmpty("prompt text") });
     } else {
-      throw new Error("prompt source must be text or file");
+      promptFile = await prompter.text({ message: "Prompt Markdown file", validate: requireNonEmpty("prompt Markdown file") });
     }
 
-    const constraints = parseList(await this.ask("Constraints"));
-    const timeoutSeconds = parseOptionalPositiveNumber(await this.ask("Timeout seconds"), "timeout seconds");
-    const maxCostUsd = parseOptionalNonnegativeNumber(await this.ask("Max cost USD"), "max cost USD");
-    const requiredFilesChanged = parseList(await this.ask("Required files changed"));
-    const forbiddenFilesChanged = parseList(await this.ask("Forbidden files changed"));
-    const semanticRequirements = parseList(await this.ask("Semantic requirements"));
+    const constraints = parseList(await prompter.text({ message: "Constraints" }));
+    const timeoutSeconds = parsePositiveNumber(
+      await prompter.text({ message: "Timeout seconds", validate: optionalPositiveNumber("timeout seconds") })
+    );
+    const maxCostUsd = parseNonnegativeNumber(
+      await prompter.text({ message: "Max cost USD", validate: optionalNonnegativeNumber("max cost USD") })
+    );
+    const requiredFilesChanged = parseList(await prompter.text({ message: "Required files changed" }));
+    const forbiddenFilesChanged = parseList(await prompter.text({ message: "Forbidden files changed" }));
+    const semanticRequirements = parseList(await prompter.text({ message: "Semantic requirements" }));
 
-    return {
+    const command: BenchmarkAuthoringCommand = {
       id: identity.id,
       name: identity.name,
       category,
@@ -123,46 +134,14 @@ export class InteractiveBenchmarkAuthoring {
       forbiddenFilesChanged,
       semanticRequirements
     };
-  }
 
-  private async required(label: string, defaultValue?: string): Promise<string> {
-    const value = optional(await this.ask(label, defaultValue));
-
-    if (value === undefined && defaultValue === undefined) {
-      throw new Error(`${label} is required`);
+    prompter.note(reviewSummary(command), "Review");
+    const confirmed = await prompter.confirm({ message: "Create this spec?", initialValue: true });
+    if (!confirmed) {
+      throw new PromptCancelledError();
     }
 
-    return value ?? defaultValue ?? "";
-  }
-
-  private async choose<T extends string>(label: string, options: readonly T[], defaultValue: T): Promise<T> {
-    for (;;) {
-      const answer = optional(await this.ask(`${label} (${options.join("|")})`, defaultValue));
-      const value = (answer ?? defaultValue).toLowerCase();
-      const match = options.find((option) => option === value);
-      if (match !== undefined) {
-        return match;
-      }
-
-      this.options.stdout?.(`${label} must be one of: ${options.join(", ")}\n`);
-    }
-  }
-
-  private async ask(label: string, defaultValue?: string): Promise<string> {
-    if (this.options.question) {
-      this.options.stdout?.(promptLabel(label, defaultValue));
-      return this.options.question(label);
-    }
-
-    this.options.stdout?.(promptLabel(label, defaultValue));
-
-    if (this.index >= this.answers.length) {
-      throw new Error("interactive input ended before all answers were provided");
-    }
-
-    const answer = this.answers[this.index];
-    this.index += 1;
-    return answer;
+    return command;
   }
 
   private async tryGenerateCommands(repoUrlOrPath: string): Promise<{
@@ -173,26 +152,74 @@ export class InteractiveBenchmarkAuthoring {
       return undefined;
     }
 
-    const answer = optional(await this.ask("Detect setup and validation commands from this project? (Y/n)"));
+    const shouldDetect = await this.options.prompter.confirm({
+      message: "Detect setup and validation commands from this project?",
+      initialValue: true
+    });
 
-    if (answer === undefined || answer.toLowerCase() === "y" || answer.toLowerCase() === "yes") {
-      return this.options.generateCommands(repoUrlOrPath);
-    }
-
-    if (answer.toLowerCase() === "n" || answer.toLowerCase() === "no") {
+    if (!shouldDetect) {
       return undefined;
     }
 
-    throw new Error("detect setup and validation commands answer must be y or n");
+    const spinner = this.options.prompter.spinner();
+    spinner.start("Detecting project commands");
+    try {
+      return await this.options.generateCommands(repoUrlOrPath);
+    } finally {
+      spinner.stop("Project commands detected");
+    }
   }
 }
 
-function categoryOptions(): readonly BenchmarkCategory[] {
-  return BenchmarkCategorySchema.options;
+function categoryOptions(): readonly SelectOption<BenchmarkCategory>[] {
+  return BenchmarkCategorySchema.options.map((value) => ({ value }));
 }
 
-function promptLabel(label: string, defaultValue?: string): string {
-  return defaultValue === undefined ? `${label}: ` : `${label} [${defaultValue}]: `;
+function reviewSummary(command: BenchmarkAuthoringCommand): string {
+  const lines = [
+    `id: ${command.id}`,
+    `category: ${command.category}`,
+    `source: ${command.repoUrl ?? command.fixturePath ?? "unknown"}`,
+    `prompt: ${command.promptFile ?? "inline text"}`
+  ];
+
+  if ((command.setupCommands?.length ?? 0) > 0) {
+    lines.push(`setup: ${command.setupCommands?.join(", ")}`);
+  }
+
+  if ((command.testCommands?.length ?? 0) > 0) {
+    lines.push(`tests: ${command.testCommands?.join(", ")}`);
+  }
+
+  return lines.join("\n");
+}
+
+function requireNonEmpty(label: string): (value: string) => string | undefined {
+  return (value) => (value.trim().length === 0 ? `${label} is required` : undefined);
+}
+
+function optionalPositiveNumber(label: string): (value: string) => string | undefined {
+  return (value) => {
+    const trimmed = value.trim();
+    if (trimmed.length === 0) {
+      return undefined;
+    }
+
+    const parsed = Number(trimmed);
+    return Number.isFinite(parsed) && parsed > 0 ? undefined : `${label} must be a positive number`;
+  };
+}
+
+function optionalNonnegativeNumber(label: string): (value: string) => string | undefined {
+  return (value) => {
+    const trimmed = value.trim();
+    if (trimmed.length === 0) {
+      return undefined;
+    }
+
+    const parsed = Number(trimmed);
+    return Number.isFinite(parsed) && parsed >= 0 ? undefined : `${label} must be a nonnegative number`;
+  };
 }
 
 function formatList(values: readonly string[] | undefined): string | undefined {
@@ -213,34 +240,12 @@ function parseList(value: string, defaultValues: readonly string[] = []): readon
   return parsed.length > 0 ? parsed : defaultValues;
 }
 
-function parseOptionalPositiveNumber(value: string, label: string): number | undefined {
-  const trimmed = optional(value);
-
-  if (trimmed === undefined) {
-    return undefined;
-  }
-
-  const parsed = Number(trimmed);
-
-  if (!Number.isFinite(parsed) || parsed <= 0) {
-    throw new Error(`${label} must be a positive number`);
-  }
-
-  return parsed;
+function parsePositiveNumber(value: string): number | undefined {
+  const trimmed = value.trim();
+  return trimmed.length === 0 ? undefined : Number(trimmed);
 }
 
-function parseOptionalNonnegativeNumber(value: string, label: string): number | undefined {
-  const trimmed = optional(value);
-
-  if (trimmed === undefined) {
-    return undefined;
-  }
-
-  const parsed = Number(trimmed);
-
-  if (!Number.isFinite(parsed) || parsed < 0) {
-    throw new Error(`${label} must be a nonnegative number`);
-  }
-
-  return parsed;
+function parseNonnegativeNumber(value: string): number | undefined {
+  const trimmed = value.trim();
+  return trimmed.length === 0 ? undefined : Number(trimmed);
 }

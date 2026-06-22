@@ -28,8 +28,74 @@ describe("CLI consolidation and interactive mode", () => {
     expect(ttyOutput.stdout()).toContain("Set up a catalog");
     expect(ttyOutput.stdout()).toContain("Add a spec");
     expect(ttyOutput.stdout()).toContain("View report");
+    expect(ttyOutput.stdout()).toContain("Quit");
     expect(nonTtyExit).not.toBe(0);
     expect(nonTtyOutput.stdout()).toContain("Usage: bmh");
+  });
+
+  test("no-args menu loops until quit and re-displays after each action", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "bmh-cli-menu-loop-"));
+    const output = createOutput();
+
+    const exitCode = await runCli(["node", "bench-my-harness"], {
+      cwd,
+      stdout: output.stdout,
+      stderr: output.stderr,
+      stdin: interactiveAnswers(["init", "check", "quit"]),
+      isTty: true
+    });
+
+    const stdout = output.stdout() ?? "";
+    expect(exitCode).toBe(0);
+    expect(stdout).toContain("spec catalog initialized");
+    expect(stdout).toContain("spec catalog: valid");
+    // The menu header is re-printed before each of the three prompts.
+    expect(stdout.split("Set up a catalog").length - 1).toBeGreaterThanOrEqual(3);
+  });
+
+  test("no-args menu can dispatch a dry-run", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "bmh-cli-menu-run-"));
+    const output = createOutput();
+
+    const exitCode = await runCli(["node", "bench-my-harness"], {
+      cwd,
+      stdout: output.stdout,
+      stderr: output.stderr,
+      stdin: interactiveAnswers(["init", "run", "dry-run", "quit"]),
+      isTty: true
+    });
+
+    expect(exitCode).toBe(0);
+    expect(output.stdout()).toContain("spec suite dry-run complete");
+  });
+
+  test("no-args menu can render a report for a prior run", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "bmh-cli-menu-report-"));
+    const output = createOutput();
+
+    await runCli(["node", "bench-my-harness", "init"], {
+      cwd,
+      stdout: output.stdout,
+      stderr: output.stderr
+    });
+    await runCli(["node", "bench-my-harness", "run", "--dry-run", "--run-id", "menu-report-run"], {
+      cwd,
+      stdout: output.stdout,
+      stderr: output.stderr
+    });
+
+    const menuOutput = createOutput();
+    const exitCode = await runCli(["node", "bench-my-harness"], {
+      cwd,
+      stdout: menuOutput.stdout,
+      stderr: menuOutput.stderr,
+      stdin: interactiveAnswers(["report", "menu-report-run", "html", "quit"]),
+      isTty: true
+    });
+
+    expect(exitCode).toBe(0);
+    expect(menuOutput.stdout()).toContain("HTML report written");
+    expect(menuOutput.stdout()).toContain("menu-report-run");
   });
 
   test("no-args menu can dispatch to catalog initialization", async () => {
