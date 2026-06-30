@@ -1,6 +1,6 @@
 {
   "name": "bench-my-harness",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "author": "Vinicius Lana <vini@aicoders.academy>",
   "description": "Benchmark and observability harness for comparing agentic coding tools.",
   "license": "MIT",

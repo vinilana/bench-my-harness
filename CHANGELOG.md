@@ -4,6 +4,13 @@ All notable changes to Bench My Harness are documented in this file.
 
 This project follows semantic versioning during the v0 phase: minor versions may add or adjust CLI behavior while the public contracts are still stabilizing.
 
+## [0.4.1] - 2026-06-30
+
+### Fixed
+
+- Added embedded Claude pricing rows for Claude Opus 4.8, Claude Sonnet 4.6, and Claude Fable 5 so Claude Code usage reports can estimate cost for those known models instead of marking cost unavailable.
+- Tightened Claude pricing model matching so numeric variants such as `claude-opus-4-8` use their own pricing row instead of falling back to bare family pricing.
+
 ## [0.4.0] - 2026-06-21
 
 ### Changed
