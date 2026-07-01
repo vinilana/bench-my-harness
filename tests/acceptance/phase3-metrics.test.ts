@@ -23,13 +23,19 @@ const baseEvent = {
   security: { redaction_applied: true, secret_scan_status: "passed" }
 } satisfies Omit<NormalizedEvent, "event_id" | "event_type">;
 
-function event(event_id: string, event_type: NormalizedEvent["event_type"], action = baseEvent.action): NormalizedEvent {
+function event(
+  event_id: string,
+  event_type: NormalizedEvent["event_type"],
+  action = baseEvent.action,
+  payload: NormalizedEvent["payload"] = {}
+): NormalizedEvent {
   return {
     ...baseEvent,
     event_id,
     idempotency_key: `${baseEvent.idempotency_key}:${event_id}`,
     event_type,
     action,
+    payload,
     raw_ref: { raw_event_id: `raw_${event_id}`, payload_hash: `sha256:${event_id}` }
   };
 }
@@ -74,6 +80,197 @@ describe("phase 3 metrics", () => {
       metric: "commands_executed",
       value: 1,
       supporting_event_id: "evt_5"
+    }));
+  });
+
+  test("counts Claude Code PostToolBatch payload tools as hook-observed tool calls", () => {
+    const metrics = computeMetrics({
+      provider: "claude_code",
+      runId: "run_1",
+      trialId: "trial_1",
+      observedAt: "2026-06-20T12:01:00.000Z",
+      events: [
+        event("evt_batch", "notification.emitted", {
+          name: "PostToolBatch",
+          category: "tool_batch",
+          status: "observed"
+        }, {
+          tools: [
+            { name: "Read", status: "completed" },
+            { name: "Bash", status: "failed" }
+          ]
+        })
+      ],
+      artifacts: []
+    });
+
+    expect(metrics).toContainEqual(expect.objectContaining({
+      metric: "tool_calls_total",
+      value: 2,
+      supporting_event_id: "evt_batch"
+    }));
+    expect(metrics).toContainEqual(expect.objectContaining({
+      metric: "tool_calls_failed",
+      value: 1,
+      supporting_event_id: "evt_batch"
+    }));
+    expect(metrics).toContainEqual(expect.objectContaining({
+      metric: "tool_calls_by_type.Read",
+      value: 1
+    }));
+    expect(metrics).toContainEqual(expect.objectContaining({
+      metric: "tool_calls_by_type.Bash",
+      value: 1
+    }));
+  });
+
+  test("deduplicates hook tool calls when individual and batch evidence share a tool id", () => {
+    const metrics = computeMetrics({
+      provider: "claude_code",
+      runId: "run_1",
+      trialId: "trial_1",
+      observedAt: "2026-06-20T12:01:00.000Z",
+      events: [
+        event("evt_pre", "tool.requested", {
+          name: "Bash",
+          category: "tool",
+          status: "requested"
+        }, {
+          tool_use_id: "tool_1"
+        }),
+        event("evt_batch", "notification.emitted", {
+          name: "PostToolBatch",
+          category: "tool_batch",
+          status: "observed"
+        }, {
+          tools: [
+            { name: "Bash", status: "failed", tool_use_id: "tool_1" },
+            { name: "Read", status: "completed", tool_use_id: "tool_2" }
+          ]
+        })
+      ],
+      artifacts: []
+    });
+
+    expect(metrics).toContainEqual(expect.objectContaining({
+      metric: "tool_calls_total",
+      value: 2
+    }));
+    expect(metrics).toContainEqual(expect.objectContaining({
+      metric: "tool_calls_failed",
+      value: 1
+    }));
+    expect(metrics).toContainEqual(expect.objectContaining({
+      metric: "tool_calls_by_type.Bash",
+      value: 1
+    }));
+    expect(metrics).toContainEqual(expect.objectContaining({
+      metric: "tool_calls_by_type.Read",
+      value: 1
+    }));
+  });
+
+  test("counts terminal-only tool completion and failure events as hook-observed calls", () => {
+    const metrics = computeMetrics({
+      provider: "claude_code",
+      runId: "run_1",
+      trialId: "trial_1",
+      observedAt: "2026-06-20T12:01:00.000Z",
+      events: [
+        event("evt_done", "tool.completed", {
+          name: "Read",
+          category: "tool",
+          status: "completed"
+        }, {
+          tool_use_id: "tool_done"
+        }),
+        event("evt_failed", "tool.failed", {
+          name: "Bash",
+          category: "tool",
+          status: "failed"
+        }, {
+          tool_use_id: "tool_failed"
+        })
+      ],
+      artifacts: []
+    });
+
+    expect(metrics).toContainEqual(expect.objectContaining({
+      metric: "tool_calls_total",
+      value: 2,
+      supporting_event_id: "evt_done"
+    }));
+    expect(metrics).toContainEqual(expect.objectContaining({
+      metric: "tool_calls_failed",
+      value: 1,
+      supporting_event_id: "evt_failed"
+    }));
+    expect(metrics).toContainEqual(expect.objectContaining({
+      metric: "tool_calls_by_type.Read",
+      value: 1
+    }));
+    expect(metrics).toContainEqual(expect.objectContaining({
+      metric: "tool_calls_by_type.Bash",
+      value: 1
+    }));
+  });
+
+  test("emits verified zero tool metrics for completed hook streams with no tools", () => {
+    const metrics = computeMetrics({
+      provider: "claude_code",
+      runId: "run_1",
+      trialId: "trial_1",
+      observedAt: "2026-06-20T12:01:00.000Z",
+      events: [
+        event("evt_stop", "turn.ended", {
+          name: "Stop",
+          category: "turn",
+          status: "completed"
+        })
+      ],
+      artifacts: []
+    });
+
+    expect(metrics).toContainEqual(expect.objectContaining({
+      metric: "tool_calls_total",
+      value: 0,
+      supporting_event_id: "evt_stop"
+    }));
+    expect(metrics).toContainEqual(expect.objectContaining({
+      metric: "tool_calls_failed",
+      value: 0,
+      supporting_event_id: "evt_stop"
+    }));
+  });
+
+  test("derives interaction counts from turns and submitted prompts", () => {
+    const metrics = computeMetrics({
+      provider: "claude_code",
+      runId: "run_1",
+      trialId: "trial_1",
+      observedAt: "2026-06-20T12:01:00.000Z",
+      events: [
+        event("evt_1", "message.input", { name: "UserPromptSubmit", category: "message", status: "submitted" }),
+        {
+          ...event("evt_2", "tool.requested", { name: "Bash", category: "tool", status: "requested" }),
+          run: { ...baseEvent.run, turn_id: "turn_1" }
+        },
+        {
+          ...event("evt_3", "turn.ended", { name: "Stop", category: "turn", status: "completed" }),
+          run: { ...baseEvent.run, turn_id: "turn_1" }
+        }
+      ],
+      artifacts: []
+    });
+
+    expect(metrics).toContainEqual(expect.objectContaining({
+      metric: "agent_interactions_total",
+      value: 1,
+      unit: "count",
+      measurement_source: "derived",
+      capture_source: "normalized_events",
+      confidence: "high",
+      supporting_event_id: "evt_1"
     }));
   });
 

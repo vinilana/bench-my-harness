@@ -21,6 +21,7 @@ import { FilesystemGitDiffGenerator } from "../../outbound/filesystem/filesystem
 import { FilesystemHookEventCounter } from "../../outbound/filesystem/filesystem-hook-event-counter.js";
 import { ProcessHarnessRunner } from "../../outbound/harnesses/process-harness-runner.js";
 import { ProcessValidationRunner } from "../../outbound/harnesses/process-validation-runner.js";
+import { StaticAdapterCapabilityResolver } from "../../outbound/harnesses/static-adapter-capability-resolver.js";
 import { FilesystemProjectCommandDetector } from "../../outbound/filesystem/filesystem-project-command-detector.js";
 import { FilesystemReportStore } from "../../outbound/storage/filesystem-report-store.js";
 import { FilesystemSuiteResultStore } from "../../outbound/storage/filesystem-suite-result-store.js";
@@ -49,7 +50,7 @@ import { LoadSpecCatalogUseCase } from "../../../application/use-cases/load-spec
 import { RunSpecSuiteUseCase } from "../../../application/use-cases/run-spec-suite.js";
 import { RunSpecSuiteSmokeUseCase } from "../../../application/use-cases/run-spec-suite-smoke.js";
 import { generateDefaultSpecIdentity, type SpecCatalogDefaults } from "../../../domain/benchmark/spec-catalog.js";
-import { renderSuiteReportHtml } from "../../../domain/reports/suite-report.js";
+import { renderSuiteReportHtml } from "../../outbound/reports/suite-html-report.js";
 import { runHookCapture, type HookCaptureProvider } from "./hook-capture.js";
 import {
   InteractiveBenchmarkAuthoring,
@@ -628,8 +629,9 @@ export function buildProgram(context: CliContext): Command {
         const store = new FilesystemSuiteResultStore({
           root: resolvePath(context.cwd, options.storeRoot ?? ".bmh/runs")
         });
+        const capabilityResolver = new StaticAdapterCapabilityResolver();
         const report = hasExplicitSuiteSelection
-          ? await new RunSpecSuiteUseCase(store).execute({
+          ? await new RunSpecSuiteUseCase(store, capabilityResolver).execute({
               loadedCatalog: loaded,
               runner,
               runId: options.runId,
@@ -641,7 +643,7 @@ export function buildProgram(context: CliContext): Command {
               catalogRoot: resolvePath(context.cwd, options.catalogRoot ?? ".bmh/specs"),
               strictTelemetry: options.strictTelemetry
             })
-          : await new RunSpecSuiteSmokeUseCase(store).execute({
+          : await new RunSpecSuiteSmokeUseCase(store, capabilityResolver).execute({
               loadedCatalog: loaded,
               runner,
               runId: options.runId,
@@ -684,9 +686,12 @@ export function buildProgram(context: CliContext): Command {
         workspaceProvisioner: options.real === true ? new FilesystemWorkspaceProvisioner() : new DryRunWorkspaceProvisioner(),
         promptResolver: new ResolveBenchmarkPromptUseCase(new FilesystemPromptFileReader())
       });
-      const report = await new RunSpecSuiteUseCase(new FilesystemSuiteResultStore({
-        root: resolvePath(context.cwd, options.storeRoot ?? ".bmh/runs")
-      })).execute({
+      const report = await new RunSpecSuiteUseCase(
+        new FilesystemSuiteResultStore({
+          root: resolvePath(context.cwd, options.storeRoot ?? ".bmh/runs")
+        }),
+        new StaticAdapterCapabilityResolver()
+      ).execute({
         loadedCatalog: loaded,
         runner,
         runId: options.runId,
@@ -1341,7 +1346,7 @@ function defaultHarnessCommand(harness: HookCaptureProvider): HarnessCommand {
 
   return {
     executable: "claude",
-    args: ["-p"],
+    args: ["-p", "--output-format", "json"],
     promptDelivery: "stdin"
   };
 }
@@ -1412,7 +1417,8 @@ function shellQuote(value: string): string {
 }
 
 function hookCaptureShimJavaScript(): string {
-  return `
+  return String.raw`
+const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const args = process.argv.slice(1);
@@ -1435,17 +1441,93 @@ process.stdin.on("end", () => {
   } catch {
     payload = { raw: input };
   }
-  fs.mkdirSync(path.dirname(spool), { recursive: true });
-  fs.appendFileSync(spool, JSON.stringify({
+  const envelope = {
     schema_version: "bmh.hook_capture.v1",
     provider: opt("--provider"),
     event: opt("--event"),
     run_id: opt("--run-id"),
     trial_id: opt("--trial-id"),
     captured_at: new Date().toISOString(),
-    payload
-  }) + "\\n");
+    payload,
+    security: {
+      redaction_applied: false,
+      secret_scan_status: "pending"
+    }
+  };
+  const redaction = redactSecrets(JSON.stringify(envelope));
+  const redactedEnvelope = JSON.parse(redaction.redacted);
+  redactedEnvelope.security = {
+    redaction_applied: redaction.redactionApplied,
+    secret_scan_status: "passed",
+    original_payload_hash: redaction.originalHash,
+    redaction_hashes: redaction.findings.map((finding) => finding.hash)
+  };
+  fs.mkdirSync(path.dirname(spool), { recursive: true });
+  fs.appendFileSync(spool, JSON.stringify(redactedEnvelope) + "\n");
 });
+
+function redactSecrets(input) {
+  const findings = [];
+  let redacted = input;
+  const rules = [
+    {
+      kind: "private_key",
+      pattern: /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g,
+      replacement: () => "[REDACTED]"
+    },
+    {
+      kind: "authorization_header",
+      pattern: /(Authorization\s*[:=]\s*(?:Bearer|Basic)\s+)([^\s'",\\]+)/gi,
+      replacement: (_match, prefix) => prefix + "[REDACTED]"
+    },
+    {
+      kind: "cookie_header",
+      pattern: /(Cookie\s*[:=]\s*)([^'",\\\n]+)/gi,
+      replacement: (_match, prefix) => prefix + "[REDACTED]"
+    },
+    {
+      kind: "openai_api_key",
+      pattern: /\bsk-[A-Za-z0-9_-]{8,}\b/g,
+      replacement: () => "[REDACTED]"
+    },
+    {
+      kind: "api_key",
+      pattern: /\b(sk-[A-Za-z0-9_-]{8,}|[A-Za-z0-9_-]*api[_-]?key[A-Za-z0-9_-]*\s*[:=]\s*)[A-Za-z0-9_./+=-]{8,}/gi,
+      replacement: (match) => {
+        const assignment = match.match(/^(.+?[:=]\s*)/);
+        return assignment ? assignment[1] + "[REDACTED]" : "[REDACTED]";
+      }
+    },
+    {
+      kind: "oauth_or_jwt",
+      pattern: /\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g,
+      replacement: () => "[REDACTED]"
+    },
+    {
+      kind: "env_assignment",
+      pattern: /\b([A-Z][A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|API_KEY|ACCESS_KEY|PRIVATE_KEY)[A-Z0-9_]*\s*=\s*)([^\s'",\\]+)/g,
+      replacement: (_match, prefix) => prefix + "[REDACTED]"
+    }
+  ];
+
+  for (const rule of rules) {
+    redacted = redacted.replace(rule.pattern, (match, ...captures) => {
+      findings.push({ kind: rule.kind, hash: sha256(match) });
+      return rule.replacement(match, ...captures);
+    });
+  }
+
+  return {
+    redacted,
+    redactionApplied: findings.length > 0,
+    originalHash: sha256(input),
+    findings
+  };
+}
+
+function sha256(input) {
+  return "sha256:" + crypto.createHash("sha256").update(input).digest("hex");
+}
 `;
 }
 

@@ -113,7 +113,8 @@ export const NormalizedEventSchema = z.object({
   }),
   security: z.object({
     redaction_applied: z.boolean().optional(),
-    secret_scan_status: NonEmptyStringSchema.optional()
+    secret_scan_status: NonEmptyStringSchema.optional(),
+    redaction_hashes: z.array(NonEmptyStringSchema).optional()
   }).optional()
 }).superRefine((event, context) => {
   if (event.raw_ref !== undefined) {

@@ -1,7 +1,8 @@
 import { describe, expect, test } from "vitest";
-import { mkdtemp } from "node:fs/promises";
-import { join } from "node:path";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
+import { FilesystemHookEventCounter } from "../../src/adapters/outbound/filesystem/filesystem-hook-event-counter.js";
 import { FilesystemWorkspaceProvisioner } from "../../src/adapters/outbound/filesystem/filesystem-workspace-provisioner.js";
 import { BenchmarkRunner } from "../../src/application/use-cases/run-benchmark.js";
 import type {
@@ -151,6 +152,47 @@ describe("benchmark runner", () => {
     expect(events).toEqual(["install", "harness", "validation", "uninstall"]);
   });
 
+  test("records a note when harness-internal verification failed but BMH validation passed", async () => {
+    const root = await mkdtemp(join(tmpdir(), "bmh-runner-internal-verification-"));
+    const harnessRunner = new OrderedHarnessRunner({
+      exitCode: 0,
+      stdout: "Tests: 1 failed, 2 passed",
+      processDiagnostics: {
+        stdout: "Tests: 1 failed, 2 passed",
+        stderr: "",
+        exit: {
+          executable: "fake-harness",
+          args: [],
+          exit_code: 0,
+          timed_out: false,
+          started_at: "2026-06-21T10:00:00.000Z",
+          ended_at: "2026-06-21T10:00:01.000Z",
+          duration_ms: 1000
+        }
+      }
+    }, []);
+    const runner = new BenchmarkRunner({
+      hookInstaller: new FakeHookInstaller(),
+      harnessRunner,
+      validationRunner: new RecordingValidationRunner({ status: "passed" }),
+      artifactCollector: new FakeArtifactCollector(),
+      workspaceProvisioner: new FilesystemWorkspaceProvisioner()
+    });
+
+    const result = await runner.runTrial({
+      benchmark,
+      harness: "codex",
+      runId: "run_internal_verification",
+      trialId: "trial_internal_verification",
+      workspaceRoot: root
+    });
+
+    expect(result.status).toBe("completed");
+    expect(result.notes).toContain(
+      "harness-internal verification output contained failures; final BMH validation passed"
+    );
+  });
+
   test("classifies setup command failures as environment failures and still uninstalls hooks", async () => {
     const root = await mkdtemp(join(tmpdir(), "bmh-runner-setup-failure-"));
     const events: string[] = [];
@@ -206,7 +248,97 @@ describe("benchmark runner", () => {
     expect(result.failure_classification).toBe("agent_failed");
     expect(validationRunner.calls).toHaveLength(0);
   });
+
+  test("derives interaction and tool metrics from captured hook spools", async () => {
+    const root = await mkdtemp(join(tmpdir(), "bmh-runner-hook-metrics-"));
+    const runner = new BenchmarkRunner({
+      hookInstaller: new FakeHookInstaller(),
+      harnessRunner: new SpoolWritingHarnessRunner(),
+      hookEventCounter: new FilesystemHookEventCounter(),
+      artifactCollector: new FakeArtifactCollector(),
+      workspaceProvisioner: new FilesystemWorkspaceProvisioner()
+    });
+
+    const result = await runner.runTrial({
+      benchmark,
+      harness: "codex",
+      runId: "run_hook_metrics",
+      trialId: "trial_hook_metrics",
+      workspaceRoot: root
+    });
+
+    expect(result.metrics).toEqual(expect.arrayContaining([
+      expect.objectContaining({ metric: "agent_interactions_total", value: 1 }),
+      expect.objectContaining({
+        metric: "tool_calls_total",
+        value: 1,
+        evidence_refs: ["hooks.jsonl", "event:evt_hook_2"]
+      }),
+      expect.objectContaining({
+        metric: "tool_calls_failed",
+        value: 1,
+        evidence_refs: ["hooks.jsonl", "event:evt_hook_3"]
+      }),
+      expect.objectContaining({
+        metric: "tool_calls_by_type.Bash",
+        value: 1,
+        evidence_refs: ["hooks.jsonl", "event:evt_hook_2"]
+      })
+    ]));
+  });
 });
+
+class SpoolWritingHarnessRunner implements HarnessRunnerPort {
+  public async execute(input: HarnessRunnerInput): Promise<HarnessRunnerResult> {
+    await mkdir(dirname(input.env.BMH_SPOOL_PATH), { recursive: true });
+    await writeFile(
+      input.env.BMH_SPOOL_PATH,
+      jsonl(
+        hookEnvelope(input, "UserPromptSubmit", {
+          session_id: "session_1",
+          turn_id: "turn_1"
+        }),
+        hookEnvelope(input, "PreToolUse", {
+          session_id: "session_1",
+          turn_id: "turn_1",
+          tool_name: "Bash",
+          tool_use_id: "tool_1"
+        }),
+        hookEnvelope(input, "PostToolUse", {
+          session_id: "session_1",
+          turn_id: "turn_1",
+          tool_name: "Bash",
+          tool_use_id: "tool_1",
+          tool_response: { exit_code: 1 }
+        }),
+        hookEnvelope(input, "Stop", {
+          session_id: "session_1",
+          turn_id: "turn_1"
+        })
+      ),
+      "utf8"
+    );
+
+    return {
+      exitCode: 0,
+      stdout: "ok",
+      stderr: "",
+      processDiagnostics: {
+        stdout: "ok",
+        stderr: "",
+        exit: {
+          executable: "fake-harness",
+          args: [],
+          exit_code: 0,
+          timed_out: false,
+          started_at: "2026-06-21T10:00:00.000Z",
+          ended_at: "2026-06-21T10:00:01.000Z",
+          duration_ms: 1000
+        }
+      }
+    };
+  }
+}
 
 class OrderedHarnessRunner implements HarnessRunnerPort {
   public readonly calls: HarnessRunnerInput[] = [];
@@ -254,4 +386,24 @@ class RecordingValidationRunner implements ValidationRunnerPort {
     this.events.push("validation");
     return this.result;
   }
+}
+
+function hookEnvelope(
+  input: HarnessRunnerInput,
+  event: string,
+  payload: Record<string, unknown>
+): Record<string, unknown> {
+  return {
+    schema_version: "bmh.hook_capture.v1",
+    provider: input.harness,
+    event,
+    run_id: input.runId,
+    trial_id: input.trialId,
+    captured_at: "2026-06-21T10:00:00.500Z",
+    payload
+  };
+}
+
+function jsonl(...records: readonly unknown[]): string {
+  return `${records.map((record) => JSON.stringify(record)).join("\n")}\n`;
 }

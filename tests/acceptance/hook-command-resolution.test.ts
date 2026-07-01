@@ -22,7 +22,7 @@ describe("real suite hook command resolution", () => {
       `
 const { spawnSync } = await import("node:child_process");
 const { access, mkdir, writeFile } = await import("node:fs/promises");
-const hookPayload = JSON.stringify({ transcript_path: "transcript.jsonl", event: "Stop" });
+const hookPayload = JSON.stringify({ transcript_path: "transcript.jsonl", event: "Stop", api_key: "sk-test-1234567890" });
 const hook = spawnSync("bmh", [
   "internal",
   "hook-capture",
@@ -108,6 +108,8 @@ async function exists(path) {
     expect(capture.error).toBeUndefined();
 
     const [spoolLine] = (await readFile(join(trialDir, ".bmh", "hooks.jsonl"), "utf8")).trim().split("\n");
+    expect(spoolLine).not.toContain("sk-test-1234567890");
+    expect(spoolLine).toContain("[REDACTED]");
     const hookEvent = JSON.parse(spoolLine) as Record<string, unknown>;
     const result = await readJson<Record<string, unknown>>(
       join(workspace.storeRoot, "run_spec19_hook_resolution", "specs", workspace.specId, "codex", workspace.trialId, "result.json")

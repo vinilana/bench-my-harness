@@ -1,56 +1,14 @@
-import type { JsonValue, RawHookEvent } from "../ports/raw-event-store.js";
+import type { RawHookEventNormalizerPort } from "../../../application/ports/raw-hook-event-normalizer-port.js";
+import type { JsonValue, RawHookEvent } from "../../../application/ports/raw-event-store.js";
+import type { AppendNormalizedEventInput } from "../../../application/ports/normalized-event-store.js";
 
-export interface NormalizedHookEvent {
-  schema_version: "bmh.event.v1";
-  event_id: string;
-  idempotency_key: string;
-  provider: RawHookEvent["provider"];
-  provider_event_type: string;
-  event_type: string;
-  occurred_at: string;
-  observed_at: string;
-  source: {
-    transport: "stdin";
-    adapter_version: string;
-  };
-  run: {
-    run_id: string;
-    trial_id: string;
-    session_id?: string;
-    turn_id?: string;
-  };
-  actor: {
-    type: "agent";
-    name: string;
-  };
-  action: {
-    name?: string;
-    category?: string;
-    status: string;
-  };
-  payload: JsonValue;
-  raw_ref: {
-    raw_event_id: string;
-    payload_hash: string;
-  };
-  quality: {
-    identity: "derived";
-    timestamp: "native" | "observed";
-    ordering: "best_effort";
-    payload_completeness: "full";
-    session: "native" | "unavailable";
-    turn: "native" | "unavailable";
-    tool_call: "native" | "unavailable";
-    usage: "unavailable";
-    context: "native" | "unavailable";
-  };
-  security: {
-    redaction_applied: boolean;
-    secret_scan_status: "unknown";
-  };
+export class ProviderRawHookEventNormalizer implements RawHookEventNormalizerPort {
+  public normalize(raw: RawHookEvent): AppendNormalizedEventInput {
+    return normalizeRawHookEvent(raw);
+  }
 }
 
-export function normalizeRawHookEvent(raw: RawHookEvent): NormalizedHookEvent {
+export function normalizeRawHookEvent(raw: RawHookEvent): AppendNormalizedEventInput {
   const payload = asJsonObject(raw.payload);
   const providerEventType = readString(payload, "hook_event_name") ?? "unknown";
   const sessionId = readString(payload, "session_id");
@@ -103,10 +61,7 @@ export function normalizeRawHookEvent(raw: RawHookEvent): NormalizedHookEvent {
       usage: "unavailable",
       context: isCompactEvent(providerEventType) ? "native" : "unavailable"
     },
-    security: {
-      redaction_applied: false,
-      secret_scan_status: "unknown"
-    }
+    security: normalizedSecurity(raw)
   };
 }
 
@@ -216,4 +171,14 @@ function readString(payload: Record<string, JsonValue>, key: string): string | u
 
 function omitUndefined<T extends Record<string, unknown>>(value: T): T {
   return Object.fromEntries(Object.entries(value).filter(([, entry]) => entry !== undefined)) as T;
+}
+
+function normalizedSecurity(raw: RawHookEvent): NonNullable<AppendNormalizedEventInput["security"]> {
+  return omitUndefined({
+    redaction_applied: raw.security.redaction_applied,
+    secret_scan_status: raw.security.secret_scan_status,
+    redaction_hashes: raw.security.redaction_hashes === undefined
+      ? undefined
+      : [...raw.security.redaction_hashes]
+  });
 }

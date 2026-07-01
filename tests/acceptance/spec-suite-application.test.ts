@@ -2,6 +2,10 @@ import { describe, expect, test } from "vitest";
 
 import type { ArtifactCollectorInput, ArtifactCollectorPort } from "../../src/application/ports/artifact-collector-port.js";
 import type {
+  AdapterCapabilityMatrix,
+  AdapterCapabilityResolverPort
+} from "../../src/application/ports/adapter-capability-resolver-port.js";
+import type {
   HarnessRunnerInput,
   HarnessRunnerPort,
   HarnessRunnerResult
@@ -11,6 +15,11 @@ import type {
   InstallHarnessHooksInput,
   InstallHarnessHooksPort
 } from "../../src/application/ports/install-harness-hooks-port.js";
+import type {
+  ValidationRunnerInput,
+  ValidationRunnerPort,
+  ValidationRunnerResult
+} from "../../src/application/ports/validation-runner-port.js";
 import type { PromptFileReaderPort } from "../../src/application/ports/prompt-file-reader-port.js";
 import type { SpecCatalogStore } from "../../src/application/ports/spec-catalog-store.js";
 import type {
@@ -106,6 +115,90 @@ describe("spec suite application layer", () => {
 
     expect(result.valid).toBe(false);
     expect(result.errors).toEqual(["catalog benchmark login-validation must define repo.base_ref"]);
+  });
+
+  test("carries harness-internal verification notes into suite reports", async () => {
+    const harnessRunner = new RecordingHarnessRunner(() => ({
+      exitCode: 0,
+      stdout: "Tests: 1 failed, 2 passed",
+      processDiagnostics: {
+        stdout: "Tests: 1 failed, 2 passed",
+        stderr: "",
+        exit: {
+          executable: "fake-harness",
+          args: [],
+          exit_code: 0,
+          timed_out: false,
+          started_at: "2026-06-21T10:00:00.000Z",
+          ended_at: "2026-06-21T10:00:01.000Z",
+          duration_ms: 1000
+        }
+      }
+    }));
+    const runner = new BenchmarkRunner({
+      hookInstaller: new RecordingHookInstaller(),
+      harnessRunner,
+      promptResolver: new ResolveBenchmarkPromptUseCase(new InMemoryPromptReader()),
+      validationRunner: new PassingValidationRunner(),
+      artifactCollector: new RecordingArtifactCollector(),
+      workspaceProvisioner: new RecordingWorkspaceProvisioner()
+    });
+
+    const report = await new RunSpecSuiteUseCase().execute({
+      loadedCatalog: loadedCatalog(),
+      runner,
+      runId: "run_suite_notes",
+      catalogRoot: ".bmh/specs",
+      specIds: ["login-validation"],
+      harnesses: ["codex"],
+      trials: 1,
+      workspaceRoot: ".bmh/workspaces"
+    });
+
+    expect(report.trials[0].notes).toContain(
+      "harness-internal verification output contained failures; final BMH validation passed"
+    );
+  });
+
+  test("attaches adapter capability matrices to suite trial reports", async () => {
+    const runner = new BenchmarkRunner({
+      hookInstaller: new RecordingHookInstaller(),
+      harnessRunner: new RecordingHarnessRunner(() => ({ exitCode: 0, stdout: "ok" })),
+      promptResolver: new ResolveBenchmarkPromptUseCase(new InMemoryPromptReader()),
+      artifactCollector: new RecordingArtifactCollector(),
+      workspaceProvisioner: new RecordingWorkspaceProvisioner()
+    });
+
+    const report = await new RunSpecSuiteUseCase(
+      undefined,
+      new InMemoryCapabilityResolver()
+    ).execute({
+      loadedCatalog: loadedCatalog(),
+      runner,
+      runId: "run_suite_capabilities",
+      catalogRoot: ".bmh/specs",
+      specIds: ["login-validation"],
+      harnesses: ["codex"],
+      trials: 1,
+      workspaceRoot: ".bmh/workspaces"
+    });
+
+    expect(report.trials[0].adapter_capabilities).toEqual({
+      provider: "codex",
+      adapter_version: "codex-hooks@test",
+      supported_provider_versions: ["codex hooks schema"],
+      capabilities: expect.objectContaining({
+        tool_lifecycle: "partial",
+        token_usage: "unavailable",
+        context_usage: "unavailable",
+        project_local_hooks: true
+      }),
+      capability_evidence: expect.objectContaining({
+        tool_lifecycle: ["tests/acceptance/spec-suite-application.test.ts"],
+        token_usage: ["tests/acceptance/spec-suite-application.test.ts"]
+      }),
+      known_gaps: ["test resolver"]
+    });
   });
 });
 
@@ -208,6 +301,42 @@ class RecordingArtifactCollector implements ArtifactCollectorPort {
   public async collect(input: ArtifactCollectorInput): Promise<[]> {
     this.calls.push(input);
     return [];
+  }
+}
+
+class PassingValidationRunner implements ValidationRunnerPort {
+  public readonly calls: ValidationRunnerInput[] = [];
+
+  public async execute(input: ValidationRunnerInput): Promise<ValidationRunnerResult> {
+    this.calls.push(input);
+    return { status: "passed" };
+  }
+}
+
+class InMemoryCapabilityResolver implements AdapterCapabilityResolverPort {
+  public resolve(harness: "codex" | "claude_code"): AdapterCapabilityMatrix {
+    return {
+      provider: harness,
+      adapter_version: `${harness === "codex" ? "codex" : "claude-code"}-hooks@test`,
+      supported_provider_versions: [`${harness === "codex" ? "codex" : "claude-code"} hooks schema`],
+      capabilities: {
+        session_lifecycle: "native",
+        turn_lifecycle: harness === "codex" ? "partial" : "native",
+        tool_lifecycle: harness === "codex" ? "partial" : "native",
+        token_usage: "unavailable",
+        context_usage: harness === "codex" ? "unavailable" : "partial",
+        project_local_hooks: true
+      },
+      capability_evidence: {
+        session_lifecycle: ["tests/acceptance/spec-suite-application.test.ts"],
+        turn_lifecycle: ["tests/acceptance/spec-suite-application.test.ts"],
+        tool_lifecycle: ["tests/acceptance/spec-suite-application.test.ts"],
+        token_usage: ["tests/acceptance/spec-suite-application.test.ts"],
+        context_usage: ["tests/acceptance/spec-suite-application.test.ts"],
+        project_local_hooks: ["tests/acceptance/spec-suite-application.test.ts"]
+      },
+      known_gaps: ["test resolver"]
+    };
   }
 }
 

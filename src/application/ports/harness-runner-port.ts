@@ -42,6 +42,8 @@ export interface HarnessRunnerResult {
   failureClassification?: HarnessFailureClassification;
   processDiagnostics?: ProcessDiagnostics;
   transcriptPath?: string;
+  statusLineJsonlPath?: string;
+  otelJsonlPath?: string;
   diffPath?: string;
   testOutputPath?: string;
 }

@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import type {
+  HarnessFailureClassification,
   HarnessName,
   HarnessRunnerInput,
   HarnessRunnerPort,
@@ -148,7 +149,9 @@ function executeProcess(
         stdout,
         stderr,
         timedOut,
-        failureClassification: timedOut ? "timeout" : undefined,
+        failureClassification: timedOut
+          ? "timeout"
+          : processFailureClassification(input.harness, exitCode, stdout, stderr),
         processDiagnostics: diagnosticsFor({
           command,
           exitCode,
@@ -193,4 +196,30 @@ function diagnosticsFor(input: {
 
 function bufferToString(chunks: readonly Buffer[]): string {
   return Buffer.concat(chunks).toString("utf8");
+}
+
+function processFailureClassification(
+  harness: HarnessName,
+  exitCode: number,
+  stdout: string,
+  stderr: string
+): HarnessFailureClassification | undefined {
+  if (exitCode === 0 || harness !== "claude_code") {
+    return undefined;
+  }
+
+  const output = `${stdout}\n${stderr}`.toLowerCase();
+  if (/\bsession limit\b/.test(output)
+    || /\brate limit(?:ed)?\b/.test(output)
+    || /\bquota\b/.test(output)
+    || /\bnot logged in\b/.test(output)
+    || /\bauthentication\b/.test(output)
+    || /\bauth(?:orization|orisation)? failed\b/.test(output)
+    || /\bapi key\b/.test(output)
+    || /\bbilling\b/.test(output)
+    || /\bmodel\b.*\b(unavailable|restricted|not found)\b/.test(output)) {
+    return "environment_failed";
+  }
+
+  return undefined;
 }

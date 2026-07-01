@@ -17,44 +17,75 @@ export interface DeriveMetricsInput {
 
 export function deriveMetrics(input: DeriveMetricsInput): MetricObservation[] {
   return [
+    ...deriveInteractionMetrics(input),
     ...deriveToolMetrics(input),
     ...deriveOutputMetrics(input)
   ];
 }
 
+function deriveInteractionMetrics(input: DeriveMetricsInput): MetricObservation[] {
+  const promptEvents = input.events.filter((event) => event.event_type === "message.input");
+  const turnEvents = input.events.filter((event) =>
+    event.event_type === "turn.started" || event.event_type === "turn.ended"
+  );
+  const turnIds = [...new Set(turnEvents.flatMap((event) => event.run.turn_id === undefined ? [] : [event.run.turn_id]))];
+  const interactions = turnIds.length > 0 ? turnIds.length : promptEvents.length;
+  const supportingEvent = promptEvents[0] ?? turnEvents[0];
+
+  if (interactions === 0 || supportingEvent === undefined) {
+    return [];
+  }
+
+  return [metric(input, {
+    metric: "agent_interactions_total",
+    value: interactions,
+    unit: "count",
+    capture_source: "normalized_events",
+    supporting_event_id: supportingEvent.event_id
+  })];
+}
+
 function deriveToolMetrics(input: DeriveMetricsInput): MetricObservation[] {
-  const requestedTools = input.events.filter((event) => event.event_type === "tool.requested");
-  const failedTools = input.events.filter((event) => event.event_type === "tool.failed");
+  const primaryTools = dedupeToolObservations([
+    ...input.events.filter((event) => event.event_type === "tool.requested").map((event) => toolObservation(event)),
+    ...input.events.flatMap(batchToolObservations)
+  ]);
+  const terminalTools = input.events
+    .filter((event) => event.event_type === "tool.completed" || event.event_type === "tool.failed")
+    .map((event) => toolObservation(event));
+  const observedTools = mergeTerminalToolObservations(primaryTools, terminalTools);
+  const failedTools = observedTools.filter((tool) => tool.status === "failed");
   const completedCommands = input.events.filter((event) => event.event_type === "command.completed");
   const metrics: MetricObservation[] = [];
+  const supportingEvent = observedTools[0]?.event ?? input.events[0];
 
-  if (requestedTools.length > 0) {
+  if (observedTools.length > 0 || supportingEvent !== undefined) {
     metrics.push(metric(input, {
       metric: "tool_calls_total",
-      value: requestedTools.length,
+      value: observedTools.length,
       unit: "count",
       capture_source: "normalized_events",
-      supporting_event_id: requestedTools[0]?.event_id
+      supporting_event_id: supportingEvent?.event_id
     }));
   }
 
-  if (requestedTools.length > 0 || failedTools.length > 0) {
+  if (observedTools.length > 0 || supportingEvent !== undefined) {
     metrics.push(metric(input, {
       metric: "tool_calls_failed",
       value: failedTools.length,
       unit: "count",
       capture_source: "normalized_events",
-      supporting_event_id: failedTools[0]?.event_id ?? requestedTools[0]?.event_id
+      supporting_event_id: failureEvent(failedTools[0])?.event_id ?? supportingEvent?.event_id
     }));
   }
 
-  for (const [toolName, events] of groupBy(requestedTools, (event) => event.action.name ?? "unknown")) {
+  for (const [toolName, events] of groupBy(observedTools, (event) => event.name)) {
     metrics.push(metric(input, {
       metric: `tool_calls_by_type.${metricSegment(toolName)}`,
       value: events.length,
       unit: "count",
       capture_source: "normalized_events",
-      supporting_event_id: events[0]?.event_id
+      supporting_event_id: events[0]?.event.event_id
     }));
   }
 
@@ -69,6 +100,148 @@ function deriveToolMetrics(input: DeriveMetricsInput): MetricObservation[] {
   }
 
   return metrics;
+}
+
+function mergeTerminalToolObservations(
+  primaryTools: readonly ToolObservation[],
+  terminalTools: readonly ToolObservation[]
+): ToolObservation[] {
+  const merged = [...primaryTools];
+
+  for (const terminal of terminalTools) {
+    const existingIndex = matchingToolIndex(terminal, merged);
+    if (existingIndex === undefined) {
+      merged.push(terminal);
+      continue;
+    }
+
+    if (terminal.status === "failed") {
+      const existing = merged[existingIndex];
+      merged[existingIndex] = {
+        ...existing,
+        status: "failed",
+        statusEvent: terminal.statusEvent ?? terminal.event
+      };
+    }
+  }
+
+  return dedupeToolObservations(merged);
+}
+
+function matchingToolIndex(tool: ToolObservation, tools: readonly ToolObservation[]): number | undefined {
+  const index = tools.findIndex((candidate) =>
+    tool.id !== undefined
+      ? candidate.id === tool.id
+      : candidate.id === undefined && candidate.name === tool.name
+  );
+
+  return index === -1 ? undefined : index;
+}
+
+function failureEvent(tool: ToolObservation | undefined): NormalizedEvent | undefined {
+  return tool?.statusEvent ?? tool?.event;
+}
+
+function failedToolObservation(existing: ToolObservation, failed: ToolObservation): ToolObservation {
+  return {
+    ...existing,
+    status: "failed",
+    statusEvent: failed.statusEvent ?? failed.event
+  };
+}
+
+function shouldMergeFailedTool(existing: ToolObservation, candidate: ToolObservation): boolean {
+  return existing.status !== "failed" && candidate.status === "failed";
+}
+
+function sameToolIdentity(left: ToolObservation, right: ToolObservation): boolean {
+  if (left.id !== undefined && right.id !== undefined) {
+    return left.id === right.id;
+  }
+
+  return false;
+}
+
+interface ToolObservation {
+  readonly name: string;
+  readonly status: string;
+  readonly id?: string;
+  readonly event: NormalizedEvent;
+  readonly statusEvent?: NormalizedEvent;
+}
+
+function toolObservation(event: NormalizedEvent): ToolObservation {
+  const payload = recordValue(event.payload);
+
+  return {
+    name: event.action.name ?? "unknown",
+    status: event.action.status,
+    id: payload === undefined
+      ? undefined
+      : stringValue(payload["tool_use_id"]) ?? stringValue(payload["id"]),
+    event,
+    statusEvent: event.action.status === "failed" ? event : undefined
+  };
+}
+
+function batchToolObservations(event: NormalizedEvent): ToolObservation[] {
+  if (event.action.category !== "tool_batch") {
+    return [];
+  }
+
+  const payload = recordValue(event.payload);
+  const tools = Array.isArray(payload?.["tools"]) ? payload["tools"] : [];
+
+  return tools.flatMap((tool) => {
+    const record = recordValue(tool);
+    if (record === undefined) {
+      return [];
+    }
+
+    const status = stringValue(record["status"]) ?? stringValue(record["state"]) ?? "completed";
+    return [{
+      name: stringValue(record["name"]) ?? stringValue(record["tool_name"]) ?? "unknown",
+      status,
+      id: stringValue(record["tool_use_id"]) ?? stringValue(record["id"]),
+      event,
+      statusEvent: status === "failed" ? event : undefined
+    }];
+  });
+}
+
+function dedupeToolObservations(tools: readonly ToolObservation[]): ToolObservation[] {
+  const deduped: ToolObservation[] = [];
+  const seenIds = new Set<string>();
+
+  for (const tool of tools) {
+    if (tool.id === undefined) {
+      deduped.push(tool);
+      continue;
+    }
+
+    if (seenIds.has(tool.id)) {
+      const existingIndex = deduped.findIndex((candidate) => sameToolIdentity(candidate, tool));
+      if (existingIndex !== -1 && shouldMergeFailedTool(deduped[existingIndex], tool)) {
+        deduped[existingIndex] = failedToolObservation(deduped[existingIndex], tool);
+      }
+      continue;
+    }
+
+    seenIds.add(tool.id);
+    deduped.push(tool);
+  }
+
+  return deduped;
+}
+
+function recordValue(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
 function deriveOutputMetrics(input: DeriveMetricsInput): MetricObservation[] {

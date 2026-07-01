@@ -60,7 +60,8 @@ Normalizar eventos de harnesses heterogeneos para um envelope estavel. O contrat
   },
   "security": {
     "redaction_applied": true,
-    "secret_scan_status": "passed"
+    "secret_scan_status": "passed",
+    "redaction_hashes": ["sha256:..."]
   }
 }
 ```
@@ -135,3 +136,12 @@ Campos incertos devem ser marcados em `quality`, nao inventados silenciosamente:
 ## Preservacao do bruto
 
 O evento canonico deve referenciar `RawHookEvent` por `raw_ref`. Relatorios podem omitir payload bruto, mas o sistema deve conseguir reprocessar eventos quando schemas de adapters evoluirem.
+
+`RawHookEvent` deve registrar de forma explicita:
+
+- se redaction foi aplicada;
+- status do scan de segredo;
+- hashes de payload original e achados redigidos quando disponiveis;
+- politica de retencao do payload bruto.
+
+Quando o payload bruto for armazenado para reprocessamento, essa retencao deve estar marcada no evento bruto. Artefatos de report devem continuar omitindo payloads brutos por padrao.

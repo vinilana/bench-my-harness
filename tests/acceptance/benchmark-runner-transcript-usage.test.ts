@@ -5,6 +5,7 @@ import { describe, expect, test } from "vitest";
 
 import { FilesystemWorkspaceProvisioner } from "../../src/adapters/outbound/filesystem/filesystem-workspace-provisioner.js";
 import { CodexUsageCapture } from "../../src/adapters/outbound/usage/codex-usage-capture.js";
+import { ClaudeCodeUsageCapture } from "../../src/adapters/outbound/usage/claude-code-usage-capture.js";
 import type { HookInstallation, InstallHarnessHooksInput, InstallHarnessHooksPort } from "../../src/application/ports/install-harness-hooks-port.js";
 import type { HarnessRunnerInput, HarnessRunnerPort, HarnessRunnerResult } from "../../src/application/ports/harness-runner-port.js";
 import type { NormalizedUsageCapturePort, UsageCaptureContext, UsageReport } from "../../src/application/ports/usage-capture-port.js";
@@ -152,6 +153,81 @@ describe("benchmark runner transcript usage handoff", () => {
     expect(result.usage?.tokens.total).toEqual(expect.objectContaining({
       value: 1050,
       evidence_refs: ["transcript.jsonl"]
+    }));
+  });
+
+  test("passes Claude status-line and OTel evidence paths into usage capture", async () => {
+    const root = await mkdtemp(join(tmpdir(), "bmh-runner-claude-telemetry-"));
+    const evidenceRoot = join(root, "evidence");
+    const statusLinePath = join(evidenceRoot, "status-line.jsonl");
+    const otelPath = join(evidenceRoot, "otel.jsonl");
+    await mkdir(evidenceRoot, { recursive: true });
+    await writeFile(statusLinePath, jsonl({
+      model: "claude-status-fallback",
+      usage: {
+        total_tokens: 1,
+        input_tokens: 1
+      }
+    }));
+    await writeFile(otelPath, jsonl(
+      {
+        name: "claude_code.token.usage",
+        value: 1000,
+        attributes: { type: "input", model: "claude-sonnet-4-6" }
+      },
+      {
+        name: "claude_code.token.usage",
+        value: 200,
+        attributes: { type: "output", model: "claude-sonnet-4-6" }
+      },
+      {
+        name: "claude_code.cost.usage",
+        value: 0.01,
+        attributes: { model: "claude-sonnet-4-6" }
+      }
+    ));
+
+    const runner = new BenchmarkRunner({
+      hookInstaller: new RecordingHookInstaller(),
+      harnessRunner: new RecordingHarnessRunner({
+        exitCode: 0,
+        processDiagnostics: processDiagnostics(),
+        statusLineJsonlPath: statusLinePath,
+        otelJsonlPath: otelPath
+      }),
+      artifactCollector: new FakeArtifactCollector(),
+      workspaceProvisioner: new FilesystemWorkspaceProvisioner(),
+      usageCapture: new ClaudeCodeUsageCapture({})
+    });
+
+    const result = await runner.runTrial({
+      benchmark,
+      harness: "claude_code",
+      runId: "run_claude_telemetry_handoff",
+      trialId: "trial_claude_telemetry_handoff",
+      workspaceRoot: root
+    });
+
+    expect(result.artifact_paths).toEqual(expect.objectContaining({
+      status_line_jsonl_path: statusLinePath,
+      otel_jsonl_path: otelPath
+    }));
+    expect(result.usage?.llms).toEqual([
+      expect.objectContaining({
+        model: "claude-sonnet-4-6",
+        capture_source: "claude_otel",
+        confidence: "high"
+      })
+    ]);
+    expect(result.usage?.tokens.total).toEqual(expect.objectContaining({
+      value: 1200,
+      capture_source: "claude_otel",
+      evidence_refs: ["otel.jsonl"]
+    }));
+    expect(result.usage?.cost.total_usd).toEqual(expect.objectContaining({
+      value: 0.01,
+      capture_source: "claude_otel",
+      evidence_refs: ["otel.jsonl"]
     }));
   });
 });

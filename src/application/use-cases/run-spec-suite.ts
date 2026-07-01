@@ -1,4 +1,6 @@
 import type { HarnessName } from "../ports/harness-runner-port.js";
+import type { AdapterCapabilityResolverPort } from "../ports/adapter-capability-resolver-port.js";
+import type { BenchmarkTrialRunnerPort, RunTrialResult } from "../ports/benchmark-trial-runner-port.js";
 import type {
   TrialArtifactFinalizationRecord,
   TrialProcessDiagnosticsRecord,
@@ -8,11 +10,10 @@ import type { MetricObservation, UsageReport } from "../ports/usage-capture-port
 import type { LoadedSpecCatalog } from "../../domain/benchmark/spec-catalog.js";
 import type { SuiteReport, SuiteTrialReport } from "../../domain/reports/suite-report.js";
 import { buildSuiteReport } from "../../domain/reports/suite-report.js";
-import type { BenchmarkRunner } from "./run-benchmark.js";
 
 export interface RunSpecSuiteInput {
   readonly loadedCatalog: LoadedSpecCatalog;
-  readonly runner: BenchmarkRunner;
+  readonly runner: BenchmarkTrialRunnerPort;
   readonly runId: string;
   readonly harnesses?: readonly HarnessName[];
   readonly specIds?: readonly string[];
@@ -25,7 +26,10 @@ export interface RunSpecSuiteInput {
 }
 
 export class RunSpecSuiteUseCase {
-  public constructor(private readonly resultStore?: SuiteResultStore) {}
+  public constructor(
+    private readonly resultStore?: SuiteResultStore,
+    private readonly capabilityResolver?: AdapterCapabilityResolverPort
+  ) {}
 
   public async execute(input: RunSpecSuiteInput): Promise<SuiteReport> {
     const selectedSpecs = this.selectSpecs(input.loadedCatalog, input.specIds, input.tags);
@@ -92,6 +96,8 @@ export class RunSpecSuiteUseCase {
             workspace: result.workspace,
             hook_spool_path: result.artifact_paths?.hook_spool_path,
             transcript_path: result.artifact_paths?.transcript_path,
+            status_line_jsonl_path: result.artifact_paths?.status_line_jsonl_path,
+            otel_jsonl_path: result.artifact_paths?.otel_jsonl_path,
             diff_path: result.artifact_paths?.diff_path,
             test_output_path: result.artifact_paths?.test_output_path,
             process_diagnostics: result.process_diagnostics,
@@ -107,6 +113,7 @@ export class RunSpecSuiteUseCase {
             status: result.status,
             failure_classification: result.failure_classification,
             score: result.status === "completed" ? 1 : 0,
+            duration_ms: result.process_diagnostics?.exit.duration_ms,
             tags: spec.tags,
             workspace: result.workspace,
             hook_event_count: result.hook_event_count,
@@ -119,9 +126,13 @@ export class RunSpecSuiteUseCase {
             ],
             diagnostics: diagnosticsRefs,
             comparability,
-            metrics: metricsForUsage(result.usage),
+            metrics: [
+              ...metricsForUsage(result.usage),
+              ...(result.metrics ?? [])
+            ],
             usage: result.usage,
-            notes: []
+            adapter_capabilities: this.capabilityResolver?.resolve(harness),
+            notes: result.notes ?? []
           });
           completedTrials += 1;
           input.onProgress?.(
@@ -173,7 +184,7 @@ function processDiagnosticsRefs(
   specId: string,
   harness: HarnessName,
   trialId: string,
-  diagnostics: NonNullable<Awaited<ReturnType<BenchmarkRunner["runTrial"]>>["process_diagnostics"]>
+  diagnostics: NonNullable<RunTrialResult["process_diagnostics"]>
 ): NonNullable<SuiteTrialReport["diagnostics"]> {
   const base = `specs/${specId}/${harness}/${trialId}`;
 
@@ -191,7 +202,7 @@ function processDiagnosticsRefs(
   };
 }
 
-function comparabilityFor(result: Awaited<ReturnType<BenchmarkRunner["runTrial"]>>): SuiteTrialReport["comparability"] {
+function comparabilityFor(result: RunTrialResult): SuiteTrialReport["comparability"] {
   if (result.status !== "completed") {
     return {
       status: "limited",
@@ -213,26 +224,21 @@ function metricsForUsage(usage: UsageReport | undefined): SuiteTrialReport["metr
   if (usage === undefined) {
     return [
       unavailableMetric("token_usage", "tokens", "provider did not expose total token usage"),
+      unavailableMetric("input_tokens", "tokens", "provider did not expose input token usage"),
+      unavailableMetric("output_tokens", "tokens", "provider did not expose output token usage"),
+      unavailableMetric("cache_read_tokens", "tokens", "provider did not expose cache read token usage"),
+      unavailableMetric("cache_write_tokens", "tokens", "provider did not expose cache write token usage"),
       unavailableMetric("context_usage", undefined, "context usage capture is not configured"),
       unavailableMetric("cost", "usd", "no native billing or pricing source configured")
     ];
   }
 
-  const tokenMetric: MetricObservation = usage.tokens.total === null
-    ? unavailableMetric("token_usage", "tokens", "provider did not expose total token usage")
-    : {
-        metric: "token_usage",
-        value: usage.tokens.total.value,
-        unit: usage.tokens.total.unit,
-        measurement_source: usage.tokens.total.measurement_source,
-        capture_source: usage.tokens.total.capture_source,
-        confidence: usage.tokens.total.confidence,
-        unavailable_reason: usage.tokens.total.unavailable_reason,
-        evidence_refs: usage.tokens.total.evidence_refs
-      };
-
   return [
-    tokenMetric,
+    usageScalarMetric("token_usage", usage.tokens.total, "tokens", "provider did not expose total token usage"),
+    usageScalarMetric("input_tokens", usage.tokens.input, "tokens", "provider did not expose input token usage"),
+    usageScalarMetric("output_tokens", usage.tokens.output, "tokens", "provider did not expose output token usage"),
+    usageScalarMetric("cache_read_tokens", usage.tokens.cache_read, "tokens", "provider did not expose cache read token usage"),
+    usageScalarMetric("cache_write_tokens", usage.tokens.cache_write, "tokens", "provider did not expose cache write token usage"),
     unavailableMetric("context_usage", undefined, "context usage capture is not configured"),
     {
       metric: "cost",
@@ -245,6 +251,28 @@ function metricsForUsage(usage: UsageReport | undefined): SuiteTrialReport["metr
       evidence_refs: usage.cost.total_usd.evidence_refs
     }
   ];
+}
+
+function usageScalarMetric(
+  metric: string,
+  observation: UsageReport["tokens"]["total"],
+  unit: string,
+  unavailableReason: string
+): MetricObservation {
+  if (observation === null) {
+    return unavailableMetric(metric, unit, unavailableReason);
+  }
+
+  return {
+    metric,
+    value: observation.value,
+    unit: observation.unit,
+    measurement_source: observation.measurement_source,
+    capture_source: observation.capture_source,
+    confidence: observation.confidence,
+    unavailable_reason: observation.unavailable_reason,
+    evidence_refs: observation.evidence_refs
+  };
 }
 
 function unavailableMetric(metric: string, unit: string | undefined, unavailableReason: string): MetricObservation {

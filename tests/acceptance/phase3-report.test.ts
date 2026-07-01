@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
-import { exportReport } from "../../src/application/use-cases/export-report.js";
+import { BenchmarkReportRenderer } from "../../src/adapters/outbound/reports/benchmark-report-renderer.js";
+import { ExportReportUseCase, type ExportReportInput } from "../../src/application/use-cases/export-report.js";
 
 describe("phase 3 reports", () => {
   test("exports comparability-aware JSON with capabilities and redaction status", () => {
@@ -43,6 +44,10 @@ describe("phase 3 reports", () => {
     }
   });
 });
+
+function exportReport(input: ExportReportInput): string {
+  return new ExportReportUseCase(new BenchmarkReportRenderer()).execute(input);
+}
 
 function reportInput() {
   return {

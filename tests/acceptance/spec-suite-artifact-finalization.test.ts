@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { describe, expect, test } from "vitest";
 
 import { FilesystemSuiteResultStore } from "../../src/adapters/outbound/storage/filesystem-suite-result-store.js";
+import { FilesystemArtifactFinalizer } from "../../src/adapters/outbound/filesystem/filesystem-artifact-finalizer.js";
 import type { ArtifactCollectorInput, ArtifactCollectorPort } from "../../src/application/ports/artifact-collector-port.js";
 import type { DiffGeneratorPort } from "../../src/application/ports/diff-generator-port.js";
 import type {
@@ -23,9 +24,10 @@ import type {
   WorkspaceProvisionerPort
 } from "../../src/application/ports/workspace-provisioner-port.js";
 import { BenchmarkRunner } from "../../src/application/use-cases/run-benchmark.js";
-import type { RunTrialResult } from "../../src/application/use-cases/run-benchmark.js";
+import type { RunTrialResult } from "../../src/application/ports/benchmark-trial-runner-port.js";
 import type { LoadedSpecCatalog } from "../../src/domain/benchmark/spec-catalog.js";
 import type { SuiteReport, SuiteTrialReport } from "../../src/domain/reports/suite-report.js";
+import type { UsageReport } from "../../src/application/ports/usage-capture-port.js";
 
 describe("spec suite artifact finalization", () => {
   test("persists only existing artifact refs and writes an artifact index", async () => {
@@ -186,6 +188,207 @@ describe("spec suite artifact finalization", () => {
       ])
     );
   });
+
+  test("redacts secrets from reportable finalized artifacts and records redaction metadata", async () => {
+    const root = await mkdtemp(join(tmpdir(), "bmh-suite-artifacts-redaction-"));
+    const runsRoot = join(root, "runs");
+    const workspace = join(root, "workspace");
+    const hookSpoolPath = join(workspace, ".bmh", "hooks.jsonl");
+    const diffPath = join(workspace, "generated.diff");
+    const testOutputPath = join(workspace, "validation-output.log");
+
+    await mkdir(dirname(hookSpoolPath), { recursive: true });
+    await writeFile(hookSpoolPath, "{\"event\":\"PreToolUse\",\"authorization\":\"Bearer secret-token\"}\n", "utf8");
+    await writeFile(diffPath, "diff --git a/.env b/.env\n+OPENAI_API_KEY=sk-test-1234567890\n", "utf8");
+    await writeFile(testOutputPath, "FAIL Authorization: Bearer secret-token\n", "utf8");
+
+    const result = await new FilesystemArtifactFinalizer({ root: runsRoot }).finalize({
+      runId: "run_artifact_redaction",
+      specId: "artifact-integrity",
+      harness: "codex",
+      trialId: "artifact-integrity_codex_trial_1",
+      workspace,
+      hookSpoolPath,
+      diffPath,
+      testOutputPath,
+      processDiagnostics: {
+        stdout: "OPENAI_API_KEY=sk-test-1234567890\n",
+        stderr: "Authorization: Bearer secret-token\n",
+        exit: {
+          ...processDiagnostics().exit,
+          args: ["--api-key=sk-test-1234567890"]
+        }
+      },
+      usage: usageReportWithSecret()
+    });
+
+    const trialDir = join(
+      runsRoot,
+      "run_artifact_redaction",
+      "specs",
+      "artifact-integrity",
+      "codex",
+      "artifact-integrity_codex_trial_1"
+    );
+    const reportableArtifacts = [
+      "process-stdout.txt",
+      "process-stderr.txt",
+      "process-exit.json",
+      "hooks.jsonl",
+      "diff.patch",
+      "test-output.txt",
+      "usage.json"
+    ];
+
+    for (const artifact of reportableArtifacts) {
+      const contents = await readFile(join(trialDir, artifact), "utf8");
+      expect(contents).toContain("[REDACTED]");
+      expect(contents).not.toContain("sk-test-1234567890");
+      expect(contents).not.toContain("secret-token");
+    }
+
+    expect(result.artifactIndex).toEqual(expect.arrayContaining(
+      reportableArtifacts.map((ref) => expect.objectContaining({
+        ref,
+        exists: true,
+        redaction: expect.objectContaining({
+          status: "applied",
+          raw_payloads_included: false,
+          original_payload_hash: expect.stringMatching(/^sha256:/),
+          redaction_hashes: expect.arrayContaining([expect.stringMatching(/^sha256:/)])
+        })
+      }))
+    ));
+  });
+
+  test("finalizes Claude status-line and OTel evidence artifacts", async () => {
+    const root = await mkdtemp(join(tmpdir(), "bmh-suite-telemetry-artifacts-"));
+    const runsRoot = join(root, "runs");
+    const workspace = join(root, "workspace");
+    const statusLinePath = join(workspace, ".bmh", "status-line.jsonl");
+    const otelPath = join(workspace, ".bmh", "otel.jsonl");
+    await mkdir(dirname(statusLinePath), { recursive: true });
+    await writeFile(statusLinePath, "{\"model\":\"claude-sonnet-4-6\"}\n", "utf8");
+    await writeFile(otelPath, "{\"name\":\"claude_code.token.usage\",\"value\":1,\"attributes\":{\"type\":\"input\"}}\n", "utf8");
+
+    const result = await new FilesystemArtifactFinalizer({ root: runsRoot }).finalize({
+      runId: "run_telemetry_artifacts",
+      specId: "artifact-integrity",
+      harness: "claude_code",
+      trialId: "artifact-integrity_claude_trial_1",
+      workspace,
+      statusLineJsonlPath: statusLinePath,
+      otelJsonlPath: otelPath
+    });
+
+    const trialDir = join(
+      runsRoot,
+      "run_telemetry_artifacts",
+      "specs",
+      "artifact-integrity",
+      "claude_code",
+      "artifact-integrity_claude_trial_1"
+    );
+
+    expect(result.artifactRefs).toEqual(expect.arrayContaining([
+      "specs/artifact-integrity/claude_code/artifact-integrity_claude_trial_1/status-line.jsonl",
+      "specs/artifact-integrity/claude_code/artifact-integrity_claude_trial_1/otel.jsonl"
+    ]));
+    await expect(readFile(join(trialDir, "status-line.jsonl"), "utf8")).resolves.toContain("claude-sonnet-4-6");
+    await expect(readFile(join(trialDir, "otel.jsonl"), "utf8")).resolves.toContain("claude_code.token.usage");
+    expect(result.artifactIndex).toEqual(expect.arrayContaining([
+      expect.objectContaining({ ref: "status-line.jsonl", exists: true, kind: "status_line" }),
+      expect.objectContaining({ ref: "otel.jsonl", exists: true, kind: "otel_telemetry" })
+    ]));
+  });
+
+  test("redacts secrets from stored suite and trial JSON reports", async () => {
+    const root = await mkdtemp(join(tmpdir(), "bmh-suite-json-redaction-"));
+    const runsRoot = join(root, "runs");
+    const runId = "run_json_redaction";
+    const trial = trialReportWithSecrets();
+    const store = new FilesystemSuiteResultStore({ root: runsRoot });
+
+    await store.save({
+      runId,
+      trials: [trial],
+      report: suiteReport(runId, [trial]),
+      processDiagnostics: [{
+        spec_id: trial.spec_id,
+        harness: trial.harness,
+        trial_id: trial.trial_id,
+        diagnostics: {
+          stdout: "OPENAI_API_KEY=sk-test-1234567890\n",
+          stderr: "Authorization: Bearer secret-token\n",
+          exit: {
+            ...processDiagnostics().exit,
+            args: ["--api-key=sk-test-1234567890"]
+          }
+        }
+      }]
+    });
+
+    const resultsJson = await readFile(join(runsRoot, runId, "results.json"), "utf8");
+    const trialDir = join(runsRoot, runId, "specs", "artifact-integrity", "codex", trial.trial_id);
+    const trialJson = await readFile(
+      join(trialDir, "result.json"),
+      "utf8"
+    );
+    const found = await store.findByRunId(runId);
+    const processStdout = await readFile(join(trialDir, "process-stdout.txt"), "utf8");
+    const processStderr = await readFile(join(trialDir, "process-stderr.txt"), "utf8");
+    const processExit = await readFile(join(trialDir, "process-exit.json"), "utf8");
+
+    for (const contents of [resultsJson, trialJson, JSON.stringify(found), processStdout, processStderr, processExit]) {
+      expect(contents).toContain("[REDACTED]");
+      expect(contents).not.toContain("sk-test-1234567890");
+      expect(contents).not.toContain("secret-token");
+      expect(contents).not.toContain("repo-password");
+    }
+    expect(found?.security.redaction.status).toBe("applied");
+    expect(found?.security.redaction.raw_payloads_included).toBe(false);
+  });
+
+  test("rejects traversal IDs before writing suite result artifacts", async () => {
+    const root = await mkdtemp(join(tmpdir(), "bmh-suite-path-traversal-"));
+    const runsRoot = join(root, "runs");
+    const runId = "run_path_traversal";
+    const trial: SuiteTrialReport = {
+      ...trialReportWithSecrets(),
+      spec_id: "../escaped-spec",
+      trial_id: "trial_1"
+    };
+    const store = new FilesystemSuiteResultStore({ root: runsRoot });
+
+    await expect(store.save({
+      runId,
+      trials: [trial],
+      report: suiteReport(runId, [trial]),
+      processDiagnostics: [{
+        spec_id: trial.spec_id,
+        harness: trial.harness,
+        trial_id: trial.trial_id,
+        diagnostics: processDiagnostics()
+      }]
+    })).rejects.toThrow("invalid path segment");
+
+    await expect(stat(join(runsRoot, runId, "escaped-spec"))).rejects.toThrow();
+  });
+
+  test("rejects traversal IDs before finalizing trial artifacts", async () => {
+    const root = await mkdtemp(join(tmpdir(), "bmh-finalizer-path-traversal-"));
+    const runsRoot = join(root, "runs");
+
+    await expect(new FilesystemArtifactFinalizer({ root: runsRoot }).finalize({
+      runId: "run_finalizer_path_traversal",
+      specId: "../escaped-spec",
+      harness: "codex",
+      trialId: "trial_1",
+      processDiagnostics: processDiagnostics()
+    })).rejects.toThrow("invalid path segment");
+
+    await expect(stat(join(runsRoot, "run_finalizer_path_traversal", "escaped-spec"))).rejects.toThrow();
+  });
 });
 
 function loadedCatalog(input: { withValidationCommands: boolean }): LoadedSpecCatalog {
@@ -331,8 +534,20 @@ function suiteReport(runId: string, trials: readonly SuiteTrialReport[]): SuiteR
         mean_duration_ms: 1000,
         total_cost_usd: null,
         mean_cost_usd: null,
+        cost_per_1m_tokens: null,
+        cost_per_1m_tokens_metric: null,
         total_tokens: null,
         mean_tokens: null,
+        total_input_tokens: null,
+        mean_input_tokens: null,
+        total_output_tokens: null,
+        mean_output_tokens: null,
+        total_cache_read_tokens: null,
+        total_cache_write_tokens: null,
+        total_interactions: null,
+        mean_interactions: null,
+        total_tool_calls: null,
+        total_tool_failures: null,
         unavailable_metrics: 1
       }
     ],
@@ -364,6 +579,42 @@ function suiteReport(runId: string, trials: readonly SuiteTrialReport[]): SuiteR
         raw_payloads_included: false
       }
     }
+  };
+}
+
+function trialReportWithSecrets(): SuiteTrialReport {
+  return {
+    spec_id: "artifact-integrity",
+    spec_version: "1.0.0",
+    harness: "codex",
+    trial_id: "artifact-integrity_codex_trial_1",
+    status: "completed",
+    score: 1,
+    tags: ["artifacts"],
+    workspace_source: {
+      type: "git",
+      repo_url: "https://alice:repo-password@example.com/org/repo.git",
+      base_ref: "main",
+      resolved_base_sha: "abc123"
+    },
+    artifact_refs: ["specs/artifact-integrity/codex/artifact-integrity_codex_trial_1/result.json"],
+    comparability: {
+      status: "comparable",
+      reasons: []
+    },
+    metrics: [
+      {
+        metric: "token_usage",
+        value: null,
+        unit: "tokens",
+        measurement_source: "unavailable",
+        capture_source: "usage_capture",
+        confidence: "none",
+        unavailable_reason: "OPENAI_API_KEY=sk-test-1234567890"
+      }
+    ],
+    usage: usageReportWithSecret(),
+    notes: ["Authorization: Bearer secret-token"]
   };
 }
 
@@ -470,6 +721,55 @@ function processDiagnostics(): ProcessDiagnostics {
       started_at: "2026-06-21T00:00:00.000Z",
       ended_at: "2026-06-21T00:00:01.000Z",
       duration_ms: 1000
+    }
+  };
+}
+
+function usageReportWithSecret(): UsageReport {
+  return {
+    llms: [{
+      model: "gpt-5.5",
+      provider: "openai",
+      role: "primary",
+      measurement_source: "native",
+      capture_source: "test_fixture",
+      confidence: "high",
+      evidence_refs: ["process-stdout.txt"]
+    }],
+    tokens: {
+      total: {
+        value: null,
+        unit: "tokens",
+        measurement_source: "unavailable",
+        capture_source: "usage_capture",
+        confidence: "none",
+        unavailable_reason: "OPENAI_API_KEY=sk-test-1234567890"
+      },
+      input: null,
+      output: null,
+      cache_read: null,
+      cache_write: null
+    },
+    cost: {
+      total_usd: {
+        value: null,
+        unit: "usd",
+        measurement_source: "unavailable",
+        capture_source: "usage_capture",
+        confidence: "none",
+        unavailable_reason: "Authorization: Bearer secret-token"
+      }
+    },
+    subagents: [],
+    skills: [],
+    mcps: [],
+    coverage: {
+      model: "available",
+      tokens: "unavailable",
+      cost: "unavailable",
+      subagents: "unavailable",
+      skills: "unavailable",
+      mcp: "unavailable"
     }
   };
 }

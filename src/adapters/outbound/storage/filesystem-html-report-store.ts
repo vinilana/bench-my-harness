@@ -1,8 +1,9 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
-import { renderSuiteReportHtml, type SuiteReport, type SuiteTrialReport } from "../../../domain/reports/suite-report.js";
-import { renderStatusPill, reportStyles } from "../../../domain/reports/report-theme.js";
+import type { SuiteReport, SuiteTrialReport } from "../../../domain/reports/suite-report.js";
+import { renderStatusPill, reportStyles } from "../reports/report-theme.js";
+import { renderSuiteReportHtml } from "../reports/suite-html-report.js";
 import { redactSecrets } from "../../../domain/security/redact-secrets.js";
 
 interface HtmlTrial {
@@ -113,7 +114,19 @@ function isSuiteReport(value: unknown): value is SuiteReport {
 }
 
 function renderHtml(input: HtmlReport): string {
-  const report = redactUnknown(input) as HtmlReport;
+  const redactionState = { applied: false };
+  const redacted = redactUnknown(input, redactionState) as HtmlReport;
+  const report: HtmlReport = {
+    ...redacted,
+    security: {
+      ...redacted.security,
+      redaction: {
+        ...redacted.security.redaction,
+        status: redactionStatus(redacted.security.redaction.status, redactionState.applied),
+        raw_payloads_included: false
+      }
+    }
+  };
   const harnesses = Array.from(new Set(report.selected_harnesses.length > 0 ? report.selected_harnesses : report.trials.map((trial) => trial.harness))).sort();
   const specs = report.specs.length > 0 ? report.specs : specsFromTrials(report.trials);
   const tags = Array.from(new Set(specs.flatMap((spec) => spec.tags))).sort();
@@ -200,7 +213,8 @@ for (const id of filters) document.getElementById(id).addEventListener("change",
 }
 
 function normalizeReport(input: unknown): HtmlReport {
-  const sanitized = redactUnknown(input) as Record<string, unknown>;
+  const redactionState = { applied: false };
+  const sanitized = redactUnknown(input, redactionState) as Record<string, unknown>;
   const trials = Array.isArray(sanitized.trials) ? sanitized.trials.map(normalizeTrial) : [];
   const suite = objectField(sanitized.suite);
   const globalSummary = objectField(sanitized.global_summary);
@@ -225,7 +239,7 @@ function normalizeReport(input: unknown): HtmlReport {
     },
     security: {
       redaction: {
-        status: stringField(redaction.status) ?? "applied",
+        status: redactionStatus(stringField(redaction.status), redactionState.applied),
         raw_payloads_included: false
       }
     }
@@ -364,21 +378,31 @@ function formatNumber(value: number): string {
   return Number.isInteger(value) ? String(value) : value.toFixed(2);
 }
 
-function redactUnknown(value: unknown): unknown {
+function redactUnknown(value: unknown, redaction: { applied: boolean }): unknown {
   if (typeof value === "string") {
-    return redactSecrets(value).redacted;
+    const result = redactSecrets(value);
+    redaction.applied = redaction.applied || result.redactionApplied;
+    return result.redacted;
   }
   if (Array.isArray(value)) {
-    return value.map((item) => redactUnknown(item));
+    return value.map((item) => redactUnknown(item, redaction));
   }
   if (value !== null && typeof value === "object") {
     return Object.fromEntries(
       Object.entries(value).flatMap(([key, nested]) =>
-        key === "raw_payloads" || nested === undefined ? [] : [[key, redactUnknown(nested)]]
+        key === "raw_payloads" || nested === undefined ? [] : [[key, redactUnknown(nested, redaction)]]
       )
     );
   }
   return value;
+}
+
+function redactionStatus(inputStatus: string | undefined, redactionApplied: boolean): string {
+  if (redactionApplied || inputStatus === "applied") {
+    return "applied";
+  }
+
+  return "not_needed";
 }
 
 function objectField(value: unknown): Record<string, unknown> {

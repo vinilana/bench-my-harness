@@ -21,6 +21,8 @@ The first test suite is expected to fail because production modules do not exist
 - Normalization references the raw event by `raw_ref`.
 - Payload hash is stable for identical raw payloads.
 - Duplicate raw events increment duplicate count instead of creating duplicates.
+- Raw events record explicit payload retention and redaction metadata.
+- Normalized events preserve raw redaction status and redaction evidence hashes.
 
 ### Hook capture CLI
 

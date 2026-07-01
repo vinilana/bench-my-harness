@@ -29,6 +29,7 @@ export interface UsageCaptureContext {
   readonly processStdoutPath?: string;
   readonly processStderrPath?: string;
   readonly statusLineJsonlPath?: string;
+  readonly otelJsonlPath?: string;
 }
 
 export interface MetricObservation {
@@ -38,6 +39,9 @@ export interface MetricObservation {
   readonly measurement_source: MeasurementSource;
   readonly capture_source: string;
   readonly confidence: MeasurementConfidence;
+  readonly run_id?: string;
+  readonly trial_id?: string;
+  readonly provider?: UsageProvider;
   readonly unavailable_reason?: string;
   readonly evidence_refs?: readonly string[];
 }

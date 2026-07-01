@@ -20,6 +20,8 @@ const CLAUDE_CODE_EVENTS = [
   "PostToolUse",
   "PostToolUseFailure",
   "PostToolBatch",
+  "TaskCreate",
+  "TaskUpdate",
   "PreCompact",
   "PostCompact",
   "Stop",

@@ -37,7 +37,8 @@ export class InMemoryRawEventStore implements RawEventStore {
       payload: cloneJson(input.payload),
       payload_hash: payloadHash,
       observed_at: input.observed_at ?? new Date().toISOString(),
-      duplicate_count: 0
+      duplicate_count: 0,
+      security: rawSecurity(input)
     };
 
     this.recordsById.set(raw.raw_event_id, raw);
@@ -84,7 +85,8 @@ function stableStringify(value: JsonValue): string {
 function cloneRawHookEvent(raw: RawHookEvent): RawHookEvent {
   return {
     ...raw,
-    payload: cloneJson(raw.payload)
+    payload: cloneJson(raw.payload),
+    security: cloneRawSecurity(raw.security)
   };
 }
 
@@ -98,4 +100,28 @@ function matchesRawFilter(raw: RawHookEvent, filter: RawEventListFilter): boolea
     (filter.run_id === undefined || raw.run_id === filter.run_id) &&
     (filter.trial_id === undefined || raw.trial_id === filter.trial_id)
   );
+}
+
+function rawSecurity(input: AppendRawHookEventInput): RawHookEvent["security"] {
+  return {
+    redaction_applied: input.security?.redaction_applied ?? false,
+    secret_scan_status: input.security?.secret_scan_status ?? "pending",
+    raw_payload_retention: "stored",
+    raw_payloads_included: true,
+    ...(input.security?.original_payload_hash === undefined
+      ? {}
+      : { original_payload_hash: input.security.original_payload_hash }),
+    ...(input.security?.redaction_hashes === undefined
+      ? {}
+      : { redaction_hashes: [...input.security.redaction_hashes] })
+  };
+}
+
+function cloneRawSecurity(security: RawHookEvent["security"]): RawHookEvent["security"] {
+  return {
+    ...security,
+    ...(security.redaction_hashes === undefined
+      ? {}
+      : { redaction_hashes: [...security.redaction_hashes] })
+  };
 }

@@ -50,10 +50,16 @@ export interface AppendNormalizedEventInput {
     timestamp?: string;
     ordering?: string;
     payload_completeness?: string;
+    session?: string;
+    turn?: string;
+    tool_call?: string;
+    usage?: string;
+    context?: string;
   };
   security?: {
     redaction_applied?: boolean;
     secret_scan_status?: string;
+    redaction_hashes?: readonly string[];
   };
 }
 

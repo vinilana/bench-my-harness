@@ -5,9 +5,10 @@ import { InMemoryMetricStore } from "../../src/adapters/outbound/storage/in-memo
 import { InMemoryNormalizedEventStore } from "../../src/adapters/outbound/storage/in-memory-normalized-event-store.js";
 import { InMemoryRawEventStore } from "../../src/adapters/outbound/storage/in-memory-raw-event-store.js";
 import { InMemoryReportStore } from "../../src/adapters/outbound/storage/in-memory-report-store.js";
-import { normalizeRawHookEvent } from "../../src/application/use-cases/normalize-raw-hook-event.js";
+import { BenchmarkReportRenderer } from "../../src/adapters/outbound/reports/benchmark-report-renderer.js";
+import { normalizeRawHookEvent } from "../../src/adapters/outbound/harnesses/provider-raw-hook-event-normalizer.js";
 import { queryRunReport } from "../../src/application/use-cases/query-run-report.js";
-import { exportReport } from "../../src/application/use-cases/export-report.js";
+import { ExportReportUseCase, type ExportReportInput } from "../../src/application/use-cases/export-report.js";
 import secretBearingEvent from "../fixtures/security/secret-bearing-event.json" with { type: "json" };
 
 describe("persistence flow", () => {
@@ -175,3 +176,7 @@ describe("persistence flow", () => {
     expect(exportReport({ format: "json", report })).toContain("\"raw_payloads_included\": false");
   });
 });
+
+function exportReport(input: ExportReportInput): string {
+  return new ExportReportUseCase(new BenchmarkReportRenderer()).execute(input);
+}

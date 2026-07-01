@@ -215,19 +215,13 @@ export function usageReport(input: Omit<UsageReport, "coverage">): UsageReport {
 }
 
 export function usageToMetricObservations(context: UsageCaptureContext, report: UsageReport): MetricObservation[] {
-  void context;
   const metrics: MetricObservation[] = [];
 
-  if (report.tokens.total !== null) {
-    metrics.push({
-      metric: "total_tokens",
-      value: report.tokens.total.value,
-      unit: report.tokens.total.unit,
-      measurement_source: report.tokens.total.measurement_source,
-      capture_source: report.tokens.total.capture_source,
-      confidence: report.tokens.total.confidence
-    });
-  }
+  pushUsageMetric(metrics, context, "total_tokens", report.tokens.total);
+  pushUsageMetric(metrics, context, "input_tokens", report.tokens.input);
+  pushUsageMetric(metrics, context, "output_tokens", report.tokens.output);
+  pushUsageMetric(metrics, context, "cache_read_tokens", report.tokens.cache_read);
+  pushUsageMetric(metrics, context, "cache_write_tokens", report.tokens.cache_write);
 
   metrics.push({
     metric: "cost_usd",
@@ -235,10 +229,40 @@ export function usageToMetricObservations(context: UsageCaptureContext, report: 
     unit: report.cost.total_usd.unit,
     measurement_source: report.cost.total_usd.measurement_source,
     capture_source: report.cost.total_usd.capture_source,
-    confidence: report.cost.total_usd.confidence
+    confidence: report.cost.total_usd.confidence,
+    run_id: context.runId,
+    trial_id: context.trialId,
+    provider: context.provider,
+    unavailable_reason: report.cost.total_usd.unavailable_reason,
+    evidence_refs: report.cost.total_usd.evidence_refs
   });
 
   return metrics;
+}
+
+function pushUsageMetric(
+  metrics: MetricObservation[],
+  context: UsageCaptureContext,
+  metric: string,
+  observation: UsageValueObservation | null
+): void {
+  if (observation === null) {
+    return;
+  }
+
+  metrics.push({
+    metric,
+    value: observation.value,
+    unit: observation.unit,
+    measurement_source: observation.measurement_source,
+    capture_source: observation.capture_source,
+    confidence: observation.confidence,
+    run_id: context.runId,
+    trial_id: context.trialId,
+    provider: context.provider,
+    unavailable_reason: observation.unavailable_reason,
+    evidence_refs: observation.evidence_refs
+  });
 }
 
 export function modelProvider(provider: "codex" | "claude_code"): string {
@@ -261,11 +285,22 @@ export function extractMcpToolName(toolName: string | undefined): { server: stri
 
 export function collectMcpUsage(records: readonly UnknownRecord[], evidenceRef: string): UsageMcpObservation[] {
   const counts = new Map<string, { server: string; tool: string; call_count: number }>();
+  const seenToolCallIds = new Set<string>();
 
   for (const record of records) {
     const mcp = extractMcpToolName(stringValue(record, "tool_name") ?? stringValue(record, "name"));
     if (mcp === undefined) {
       continue;
+    }
+
+    const toolCallId = stringValue(record, "tool_use_id") ?? stringValue(record, "id");
+    const dedupeKey = toolCallId === undefined ? undefined : `${mcp.server}:${mcp.tool}:${toolCallId}`;
+    if (dedupeKey !== undefined) {
+      if (seenToolCallIds.has(dedupeKey)) {
+        continue;
+      }
+
+      seenToolCallIds.add(dedupeKey);
     }
 
     const key = `${mcp.server}:${mcp.tool}`;

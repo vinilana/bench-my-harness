@@ -38,6 +38,55 @@ describe("architecture boundaries", () => {
     expect(violations).toEqual([]);
   });
 
+  test("application use cases do not encode provider hook event vocabularies", async () => {
+    const providerHookNames = [
+      "SessionStart",
+      "UserPromptSubmit",
+      "PreToolUse",
+      "PostToolUse",
+      "PostToolUseFailure",
+      "PostToolBatch",
+      "PermissionRequest",
+      "PreCompact",
+      "PostCompact",
+      "TaskCreate",
+      "TaskUpdate",
+      "Stop",
+      "SessionEnd"
+    ];
+    const pattern = new RegExp(`\\b(${providerHookNames.join("|")})\\b`);
+    const violations: string[] = [];
+
+    for (const file of await typescriptFiles(join(ROOT, "src", "application", "use-cases"))) {
+      const source = await readFile(file, "utf8");
+
+      if (pattern.test(source)) {
+        violations.push(formatPath(file));
+      }
+    }
+
+    expect(violations).toEqual([]);
+  });
+
+  test("spec suite use cases depend on trial runner ports rather than concrete benchmark runner", async () => {
+    const violations: string[] = [];
+
+    for (const file of [
+      join(ROOT, "src", "application", "use-cases", "run-spec-suite.ts"),
+      join(ROOT, "src", "application", "use-cases", "run-spec-suite-smoke.ts")
+    ]) {
+      const source = await readFile(file, "utf8");
+
+      for (const specifier of importSpecifiers(source)) {
+        if (specifier === "./run-benchmark.js") {
+          violations.push(`${formatPath(file)} imports ${specifier}`);
+        }
+      }
+    }
+
+    expect(violations).toEqual([]);
+  });
+
   test("domain and application implementation files do not import forbidden Node runtime APIs", async () => {
     const implementationRoots = [
       join(ROOT, "src", "domain"),
@@ -54,6 +103,25 @@ describe("architecture boundaries", () => {
             violations.push(`${formatPath(file)} imports ${specifier}`);
           }
         }
+      }
+    }
+
+    expect(violations).toEqual([]);
+  });
+
+  test("domain does not own report output rendering", async () => {
+    const violations: string[] = [];
+
+    for (const file of await typescriptFiles(join(ROOT, "src", "domain"))) {
+      const source = await readFile(file, "utf8");
+      const ownsReportRendering =
+        /export function render.*Html/.test(source) ||
+        /<html|<body|<section|<table|<style/i.test(source) ||
+        /reportStyles|renderStatusPill/.test(source) ||
+        /serializeReport|renderMarkdown|# Bench My Harness Report|\| Metric \| Value \|/.test(source);
+
+      if (ownsReportRendering) {
+        violations.push(formatPath(file));
       }
     }
 

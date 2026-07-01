@@ -205,7 +205,7 @@ During the run, BMH writes project-local Codex hook configuration inside the iso
 
 ### Run Claude Code
 
-Claude Code is supported through the `claude_code` harness id. The process runner sends the prompt to stdin and injects `BMH_*` variables. Use `--harness-command-json` when your local `claude` command needs explicit arguments:
+Claude Code is supported through the `claude_code` harness id. The built-in real-run profile invokes `claude -p --output-format json`, sends the prompt to stdin, and injects `BMH_*` variables. Use `--harness-command-json` when your local `claude` command needs different explicit arguments:
 
 ```bash
 bmh run --benchmark benchmarks/login-validation.benchmark.json \
@@ -213,11 +213,11 @@ bmh run --benchmark benchmarks/login-validation.benchmark.json \
   --workspace-root .bmh/workspaces \
   --run-id run_claude_001 \
   --trial-id claude_trial_1 \
-  --harness-command-json '{"executable":"claude","args":[]}' \
+  --harness-command-json '{"executable":"claude","args":["-p","--output-format","json"]}' \
   --run-validation
 ```
 
-Claude Code usage capture is best effort. When a run artifact includes a Claude transcript JSONL, BMH reports model, input/output/cache/total tokens, and cost. Cost is native when Claude provides `costUSD`; otherwise BMH estimates known Claude models from embedded pricing and marks the value as estimated.
+Claude Code usage capture is best effort. When a run artifact includes a Claude transcript JSONL, BMH reports model, input/output/cache/total tokens, and cost. If no transcript is available, BMH can also read Claude CLI JSON from process stdout/stderr. Cost is native when Claude provides `costUSD` or `total_cost_usd`; otherwise BMH estimates known Claude models from embedded pricing and marks the value as estimated.
 
 During the run, BMH writes project-local Claude Code hook configuration inside the isolated trial workspace and points hooks at `bmh internal hook-capture --provider claude_code`.
 
@@ -380,7 +380,7 @@ bmh run --dry-run --run-id local_suite_001
 bmh check benchmark.json
 bmh run --benchmark benchmark.json --harness codex --dry-run
 bmh run --benchmark benchmark.json --harness codex --harness-command-json '{"executable":"codex","args":[]}' --run-validation
-bmh run --benchmark benchmark.json --harness claude_code --harness-command-json '{"executable":"claude","args":[]}' --run-validation
+bmh run --benchmark benchmark.json --harness claude_code --harness-command-json '{"executable":"claude","args":["-p","--output-format","json"]}' --run-validation
 bmh report --input report.json
 bmh report --run-id run_123 --store-root .bmh/runs
 bmh report --run-id local_suite_001 --store-root .bmh/runs --format html

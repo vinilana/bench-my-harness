@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import { normalizeRawHookEvent } from "../../src/application/use-cases/normalize-raw-hook-event.js";
+import { normalizeRawHookEvent } from "../../src/adapters/outbound/harnesses/provider-raw-hook-event-normalizer.js";
 import type { JsonValue, RawHookEvent } from "../../src/application/ports/raw-event-store.js";
 import { NormalizedEventSchema } from "../../src/domain/events/normalized-event.js";
 
@@ -242,6 +242,12 @@ function rawHookEvent(provider: "codex" | "claude_code", payload: JsonValue): Ra
     payload,
     payload_hash: "sha256:payload",
     observed_at: "2026-06-20T12:00:00.000Z",
-    duplicate_count: 0
+    duplicate_count: 0,
+    security: {
+      redaction_applied: false,
+      secret_scan_status: "pending",
+      raw_payload_retention: "stored",
+      raw_payloads_included: true
+    }
   };
 }

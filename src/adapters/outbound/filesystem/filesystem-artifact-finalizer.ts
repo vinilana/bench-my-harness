@@ -9,14 +9,20 @@ import type {
   TrialArtifactFinalizationResult
 } from "../../../application/ports/artifact-finalizer-port.js";
 import type { TrialTranscriptResolverPort } from "../../../application/ports/trial-transcript-resolver-port.js";
+import { redactSecrets } from "../../../domain/security/redact-secrets.js";
 import { FilesystemProviderTranscriptResolver } from "./filesystem-provider-transcript-resolver.js";
+import { safePathSegment } from "./path-safety.js";
 
 interface ArtifactCandidate {
   readonly ref: string;
   readonly kind: string;
+  readonly content?: string;
   readonly sourcePath?: string;
   readonly unavailableReason: string;
   readonly requiredWhenStrict?: boolean;
+  readonly captureSource?: string;
+  readonly confidence?: string;
+  readonly redactBeforeWrite?: boolean;
 }
 
 export class FilesystemArtifactFinalizer implements ArtifactFinalizerPort {
@@ -29,8 +35,6 @@ export class FilesystemArtifactFinalizer implements ArtifactFinalizerPort {
   public async finalize(input: TrialArtifactFinalizationInput): Promise<TrialArtifactFinalizationResult> {
     const trialDir = this.trialDir(input);
     await mkdir(trialDir, { recursive: true });
-    await this.writeProcessDiagnostics(trialDir, input);
-    await this.writeUsage(trialDir, input);
     const transcriptResolution = await this.transcriptResolver.resolve({
       harness: input.harness,
       runId: input.runId,
@@ -45,52 +49,78 @@ export class FilesystemArtifactFinalizer implements ArtifactFinalizerPort {
       {
         ref: "process-stdout.txt",
         kind: "process_stdout",
-        sourcePath: input.processDiagnostics === undefined ? undefined : join(trialDir, "process-stdout.txt"),
-        unavailableReason: "process stdout was not captured"
+        content: input.processDiagnostics?.stdout,
+        unavailableReason: "process stdout was not captured",
+        redactBeforeWrite: true
       },
       {
         ref: "process-stderr.txt",
         kind: "process_stderr",
-        sourcePath: input.processDiagnostics === undefined ? undefined : join(trialDir, "process-stderr.txt"),
-        unavailableReason: "process stderr was not captured"
+        content: input.processDiagnostics?.stderr,
+        unavailableReason: "process stderr was not captured",
+        redactBeforeWrite: true
       },
       {
         ref: "process-exit.json",
         kind: "process_exit",
-        sourcePath: input.processDiagnostics === undefined ? undefined : join(trialDir, "process-exit.json"),
-        unavailableReason: "process exit diagnostics were not captured"
+        content: input.processDiagnostics === undefined
+          ? undefined
+          : `${JSON.stringify(input.processDiagnostics.exit, null, 2)}\n`,
+        unavailableReason: "process exit diagnostics were not captured",
+        redactBeforeWrite: true
       },
       {
         ref: "hooks.jsonl",
         kind: "hook_spool",
         sourcePath: input.hookSpoolPath,
         unavailableReason: "hook spool was not found",
-        requiredWhenStrict: true
+        requiredWhenStrict: true,
+        redactBeforeWrite: true
       },
       {
         ref: "transcript.jsonl",
         kind: "transcript",
         sourcePath: transcriptResolution.transcriptPath,
         unavailableReason: transcriptResolution.unavailableReason ?? "transcript path was not exposed",
-        requiredWhenStrict: true
+        requiredWhenStrict: true,
+        captureSource: transcriptResolution.source,
+        confidence: transcriptResolution.confidence,
+        redactBeforeWrite: true
+      },
+      {
+        ref: "status-line.jsonl",
+        kind: "status_line",
+        sourcePath: resolveWorkspacePath(input.workspace, input.statusLineJsonlPath),
+        unavailableReason: "status-line evidence was not captured",
+        redactBeforeWrite: true
+      },
+      {
+        ref: "otel.jsonl",
+        kind: "otel_telemetry",
+        sourcePath: resolveWorkspacePath(input.workspace, input.otelJsonlPath),
+        unavailableReason: "OpenTelemetry evidence was not captured",
+        redactBeforeWrite: true
       },
       {
         ref: "diff.patch",
         kind: "diff",
         sourcePath: resolveWorkspacePath(input.workspace, input.diffPath),
-        unavailableReason: "git diff was not generated"
+        unavailableReason: "git diff was not generated",
+        redactBeforeWrite: true
       },
       {
         ref: "test-output.txt",
         kind: "test_output",
         sourcePath: resolveWorkspacePath(input.workspace, input.testOutputPath),
-        unavailableReason: "validation commands did not produce test output"
+        unavailableReason: "validation commands did not produce test output",
+        redactBeforeWrite: true
       },
       {
         ref: "usage.json",
         kind: "usage",
-        sourcePath: input.usage === undefined ? undefined : join(trialDir, "usage.json"),
-        unavailableReason: "usage capture did not run"
+        content: input.usage === undefined ? undefined : `${JSON.stringify(input.usage, null, 2)}\n`,
+        unavailableReason: "usage capture did not run",
+        redactBeforeWrite: true
       }
     ];
 
@@ -125,7 +155,9 @@ export class FilesystemArtifactFinalizer implements ArtifactFinalizerPort {
     candidate: ArtifactCandidate,
     strictTelemetry: boolean
   ): Promise<ArtifactIndexEntry> {
-    if (candidate.sourcePath === undefined) {
+    const sourcePath = candidate.sourcePath;
+
+    if (sourcePath === undefined && candidate.content === undefined) {
       if (strictTelemetry && candidate.requiredWhenStrict === true) {
         throw new Error(`artifact ${candidate.ref} could not be finalized: ${candidate.unavailableReason}`);
       }
@@ -134,9 +166,27 @@ export class FilesystemArtifactFinalizer implements ArtifactFinalizerPort {
     }
 
     const destination = join(trialDir, candidate.ref);
-    const source = resolve(candidate.sourcePath);
 
     try {
+      if (candidate.content !== undefined) {
+        const redaction = candidate.redactBeforeWrite === true ? redactSecrets(candidate.content) : undefined;
+        await writeFile(destination, redaction?.redacted ?? candidate.content, "utf8");
+        return existingEntry(candidate, destination, redaction);
+      }
+
+      if (sourcePath === undefined) {
+        return missingEntry(candidate);
+      }
+
+      const source = resolve(sourcePath);
+
+      if (candidate.redactBeforeWrite === true) {
+        const content = await readFile(source, "utf8");
+        const redaction = redactSecrets(content);
+        await writeFile(destination, redaction.redacted, "utf8");
+        return existingEntry(candidate, destination, redaction);
+      }
+
       if (source !== resolve(destination)) {
         await copyFile(source, destination);
       }
@@ -152,40 +202,32 @@ export class FilesystemArtifactFinalizer implements ArtifactFinalizerPort {
   }
 
   private trialDir(input: TrialArtifactFinalizationInput): string {
-    return join(this.options.root, input.runId, "specs", input.specId, input.harness, input.trialId);
-  }
-
-  private runRelativeRef(input: TrialArtifactFinalizationInput, ref: string): string {
-    return join("specs", input.specId, input.harness, input.trialId, ref);
-  }
-
-  private async writeProcessDiagnostics(
-    trialDir: string,
-    input: TrialArtifactFinalizationInput
-  ): Promise<void> {
-    if (input.processDiagnostics === undefined) {
-      return;
-    }
-
-    await writeFile(join(trialDir, "process-stdout.txt"), input.processDiagnostics.stdout, "utf8");
-    await writeFile(join(trialDir, "process-stderr.txt"), input.processDiagnostics.stderr, "utf8");
-    await writeFile(
-      join(trialDir, "process-exit.json"),
-      `${JSON.stringify(input.processDiagnostics.exit, null, 2)}\n`,
-      "utf8"
+    return join(
+      this.options.root,
+      safePathSegment(input.runId, "run id"),
+      "specs",
+      safePathSegment(input.specId, "spec id"),
+      safePathSegment(input.harness, "harness"),
+      safePathSegment(input.trialId, "trial id")
     );
   }
 
-  private async writeUsage(trialDir: string, input: TrialArtifactFinalizationInput): Promise<void> {
-    if (input.usage === undefined) {
-      return;
-    }
-
-    await writeFile(join(trialDir, "usage.json"), `${JSON.stringify(input.usage, null, 2)}\n`, "utf8");
+  private runRelativeRef(input: TrialArtifactFinalizationInput, ref: string): string {
+    return join(
+      "specs",
+      safePathSegment(input.specId, "spec id"),
+      safePathSegment(input.harness, "harness"),
+      safePathSegment(input.trialId, "trial id"),
+      ref
+    );
   }
 }
 
-async function existingEntry(candidate: ArtifactCandidate, path: string): Promise<ArtifactIndexEntry> {
+async function existingEntry(
+  candidate: ArtifactCandidate,
+  path: string,
+  redaction?: ReturnType<typeof redactSecrets>
+): Promise<ArtifactIndexEntry> {
   const [metadata, content] = await Promise.all([stat(path), readFile(path)]);
 
   return {
@@ -193,7 +235,17 @@ async function existingEntry(candidate: ArtifactCandidate, path: string): Promis
     exists: true,
     bytes: metadata.size,
     sha256: `sha256:${createHash("sha256").update(content).digest("hex")}`,
-    kind: candidate.kind
+    kind: candidate.kind,
+    capture_source: candidate.captureSource,
+    confidence: candidate.confidence,
+    redaction: redaction === undefined
+      ? undefined
+      : {
+          status: redaction.redactionApplied ? "applied" : "not_needed",
+          raw_payloads_included: false,
+          original_payload_hash: redaction.originalHash,
+          redaction_hashes: redaction.findings.map((finding) => finding.hash)
+        }
   };
 }
 

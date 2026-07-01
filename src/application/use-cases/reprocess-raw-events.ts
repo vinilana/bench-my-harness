@@ -1,10 +1,11 @@
 import type { NormalizedEventStore, NormalizedStoredEvent } from "../ports/normalized-event-store.js";
+import type { RawHookEventNormalizerPort } from "../ports/raw-hook-event-normalizer-port.js";
 import type { RawEventListFilter, RawEventStore } from "../ports/raw-event-store.js";
-import { normalizeRawHookEvent } from "./normalize-raw-hook-event.js";
 
 export interface ReprocessRawEventsStores {
   rawStore: RawEventStore;
   normalizedStore: NormalizedEventStore;
+  normalizer: RawHookEventNormalizerPort;
 }
 
 export interface ReprocessRawEventsResult {
@@ -17,7 +18,7 @@ export async function reprocessRawEvents(stores: ReprocessRawEventsStores, filte
   const stored: NormalizedStoredEvent[] = [];
 
   for (const raw of rawEvents) {
-    stored.push(await stores.normalizedStore.append(normalizeRawHookEvent(raw)));
+    stored.push(await stores.normalizedStore.append(stores.normalizer.normalize(raw)));
   }
 
   return {

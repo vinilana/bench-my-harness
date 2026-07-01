@@ -134,6 +134,28 @@ describe("Codex usage capture", () => {
     }));
     expect(usage.coverage.tokens).toBe("partial");
     expect(usage.coverage.cost).toBe("available");
+
+    const metrics = await usageCapture.capture({
+      provider: "codex",
+      runId: "run_usage_codex_transcript",
+      trialId: "trial_usage_codex_transcript"
+    });
+    expect(metrics).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        metric: "input_tokens",
+        value: 10000,
+        run_id: "run_usage_codex_transcript",
+        trial_id: "trial_usage_codex_transcript",
+        provider: "codex"
+      }),
+      expect.objectContaining({
+        metric: "output_tokens",
+        value: 500,
+        run_id: "run_usage_codex_transcript",
+        trial_id: "trial_usage_codex_transcript",
+        provider: "codex"
+      })
+    ]));
   });
 
   test("uses explicit priority pricing mode for Codex estimates", async () => {

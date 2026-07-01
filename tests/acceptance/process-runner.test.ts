@@ -105,4 +105,35 @@ process.stdout.write("fake harness complete");
     expect(result.exitCode).not.toBe(0);
     expect(result.timedOut).toBe(true);
   });
+
+  test("classifies Claude Code session limit failures as environment failures", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "bmh-process-claude-limit-"));
+    const fakeHarnessPath = join(workspace, "fake-claude-limit.mjs");
+    await writeFile(
+      fakeHarnessPath,
+      "process.stdout.write(\"You've hit your session limit · resets 10:50pm (America/Sao_Paulo)\\n\"); process.exit(1);",
+      "utf8"
+    );
+    const runner = new ProcessHarnessRunner({
+      claude_code: {
+        executable: process.execPath,
+        args: [fakeHarnessPath],
+        promptDelivery: "stdin"
+      }
+    });
+
+    const result = await runner.execute({
+      harness: "claude_code",
+      prompt: "do the work",
+      workspace,
+      runId: "run_claude_limit",
+      trialId: "trial_claude_limit",
+      env: {},
+      timeoutSeconds: 5
+    });
+
+    expect(result.exitCode).toBe(1);
+    expect(result.timedOut).toBe(false);
+    expect(result.failureClassification).toBe("environment_failed");
+  });
 });

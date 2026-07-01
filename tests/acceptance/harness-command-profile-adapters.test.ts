@@ -28,12 +28,15 @@ describe("harness command profile adapters", () => {
     expect(profile.command?.args).not.toContain("--ask-for-approval");
   });
 
-  test("Claude Code profile reports unsupported until its real command contract is implemented", () => {
+  test("Claude Code profile uses print mode with structured JSON output", () => {
     const profile = getBuiltInHarnessCommandProfile("claude_code");
 
-    expect(profile.capabilityStatus).toBe("unsupported");
-    expect(profile.command).toBeUndefined();
-    expect(profile.reason).toContain("Claude Code real process command profile is not implemented");
+    expect(profile.capabilityStatus).toBe("supported");
+    expect(profile.command).toMatchObject({
+      executable: "claude",
+      promptDelivery: "stdin"
+    });
+    expect(profile.command?.args).toEqual(["-p", "--output-format", "json"]);
   });
 
   test("availability check resolves PATH entries and reports missing executables clearly", async () => {

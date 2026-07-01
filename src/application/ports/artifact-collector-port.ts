@@ -5,6 +5,8 @@ export interface ArtifactCollectorInput {
   trialId: string;
   workspace: string;
   transcriptPath?: string;
+  statusLineJsonlPath?: string;
+  otelJsonlPath?: string;
   diffPath?: string;
   testOutputPath?: string;
 }

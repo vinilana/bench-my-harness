@@ -17,6 +17,8 @@ const CODEX_EVENTS = [
   "UserPromptSubmit",
   "PreToolUse",
   "PostToolUse",
+  "SubagentStart",
+  "SubagentStop",
   "PreCompact",
   "PostCompact",
   "Stop"

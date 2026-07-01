@@ -23,6 +23,8 @@ describe("hook installers", () => {
     expect(hooks).toContain("bmh' internal hook-capture --provider codex");
     expect(hooks).toContain("PreToolUse");
     expect(hooks).toContain("PostToolUse");
+    expect(hooks).toContain("SubagentStart");
+    expect(hooks).toContain("SubagentStop");
     expect(hooks).toContain("Stop");
   });
 
@@ -43,6 +45,8 @@ describe("hook installers", () => {
     expect(settings).toContain("bmh' internal hook-capture --provider claude_code");
     expect(settings).toContain("PreToolUse");
     expect(settings).toContain("PermissionRequest");
+    expect(settings).toContain("TaskCreate");
+    expect(settings).toContain("TaskUpdate");
     expect(settings).toContain("SessionEnd");
   });
 

@@ -1,58 +1,17 @@
-import { redactSecrets } from "../security/redact-secrets.js";
-import type { BenchmarkReport, ReportFormat } from "./report-model.js";
+import type {
+  BenchmarkReportRendererPort,
+  RenderBenchmarkReportInput
+} from "../../../application/ports/benchmark-report-renderer-port.js";
+import type { BenchmarkReport } from "../../../domain/reports/report-model.js";
 
-export interface ExportReportInput {
-  readonly format: ReportFormat;
-  readonly report: BenchmarkReport;
-  readonly includeRawPayloads?: boolean;
-}
+export class BenchmarkReportRenderer implements BenchmarkReportRendererPort {
+  public renderBenchmarkReport(input: RenderBenchmarkReportInput): string {
+    if (input.format === "json") {
+      return `${JSON.stringify(input.report, null, 2)}\n`;
+    }
 
-export function serializeReport(input: ExportReportInput): string {
-  const report = sanitizeReport(input.report, input.includeRawPayloads ?? false);
-
-  if (input.format === "json") {
-    return `${JSON.stringify(report, null, 2)}\n`;
+    return renderMarkdown(input.report);
   }
-
-  return renderMarkdown(report);
-}
-
-function sanitizeReport(report: BenchmarkReport, includeRawPayloads: boolean): BenchmarkReport {
-  const withoutRawPayloads: BenchmarkReport = includeRawPayloads
-    ? report
-    : {
-      ...report,
-      raw_payloads: undefined,
-      security: {
-        ...report.security,
-        redaction: {
-          ...report.security.redaction,
-          raw_payloads_included: false
-        }
-      }
-    };
-
-  return redactUnknown(withoutRawPayloads) as BenchmarkReport;
-}
-
-function redactUnknown(value: unknown): unknown {
-  if (typeof value === "string") {
-    return redactSecrets(value).redacted;
-  }
-
-  if (Array.isArray(value)) {
-    return value.map((item) => redactUnknown(item));
-  }
-
-  if (value !== null && typeof value === "object") {
-    return Object.fromEntries(
-      Object.entries(value).flatMap(([key, nested]) =>
-        nested === undefined ? [] : [[key, redactUnknown(nested)]]
-      )
-    );
-  }
-
-  return value;
 }
 
 function renderMarkdown(report: BenchmarkReport): string {

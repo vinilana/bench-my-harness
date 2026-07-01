@@ -36,9 +36,19 @@ const SECRET_RULES: readonly RedactionRule[] = [
     replacement: (_match, prefix: string) => `${prefix}${REDACTED}`
   },
   {
+    kind: "authorization_json",
+    pattern: /(["']authorization["']\s*:\s*["'])((?:Bearer|Basic)\s+)[^"']+(["'])/gi,
+    replacement: (_match, prefix: string, scheme: string, suffix: string) => `${prefix}${scheme}${REDACTED}${suffix}`
+  },
+  {
     kind: "cookie_header",
     pattern: /(Cookie\s*[:=]\s*)([^'",\\\n]+)/gi,
     replacement: (_match, prefix: string) => `${prefix}${REDACTED}`
+  },
+  {
+    kind: "openai_api_key",
+    pattern: /\bsk-[A-Za-z0-9_-]{8,}\b/g,
+    replacement: REDACTED
   },
   {
     kind: "api_key",
@@ -52,6 +62,11 @@ const SECRET_RULES: readonly RedactionRule[] = [
     kind: "oauth_or_jwt",
     pattern: /\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g,
     replacement: REDACTED
+  },
+  {
+    kind: "url_credentials",
+    pattern: /\b([A-Za-z][A-Za-z0-9+.-]*:\/\/)([^/?#\s:@]+):([^/?#\s@]+)@/g,
+    replacement: (_match, prefix: string) => `${prefix}${REDACTED}@`
   },
   {
     kind: "env_assignment",

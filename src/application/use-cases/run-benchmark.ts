@@ -1,10 +1,16 @@
 import type { ArtifactCollectorPort } from "../ports/artifact-collector-port.js";
+import type {
+  BenchmarkTrialRunnerPort,
+  BenchmarkTrialDefinition,
+  RunTrialInput,
+  RunTrialResult
+} from "../ports/benchmark-trial-runner-port.js";
 import type { DiffGeneratorPort } from "../ports/diff-generator-port.js";
 import type { HookEventCounterPort } from "../ports/hook-event-counter-port.js";
 import type { HookInstallation, InstallHarnessHooksPort } from "../ports/install-harness-hooks-port.js";
 import type { HarnessName, HarnessRunnerPort, ProcessDiagnostics } from "../ports/harness-runner-port.js";
 import type { ValidationRunnerPort, ValidationRunnerResult } from "../ports/validation-runner-port.js";
-import type { NormalizedUsageCapturePort, UsageReport } from "../ports/usage-capture-port.js";
+import type { MetricObservation, NormalizedUsageCapturePort, UsageReport } from "../ports/usage-capture-port.js";
 import type { TrialTranscriptResolverPort } from "../ports/trial-transcript-resolver-port.js";
 import type {
   ProvisionWorkspaceInput,
@@ -14,71 +20,8 @@ import type {
 } from "../ports/workspace-provisioner-port.js";
 import type { ResolveBenchmarkPromptUseCase } from "./resolve-benchmark-prompt.js";
 
-interface BenchmarkPrompt {
-  text?: string;
-  file?: string;
-}
-
-interface BenchmarkRepoSource extends BenchmarkCommandSource {
-  url?: string;
-  base_ref?: string;
-  golden_ref?: string;
-}
-
-interface BenchmarkCommandSource {
-  setup_commands?: readonly string[];
-  test_commands?: readonly string[];
-}
-
-interface BenchmarkDefinition {
-  id: string;
-  version: string;
-  repo?: BenchmarkRepoSource;
-  fixture?: BenchmarkCommandSource;
-  prompt: BenchmarkPrompt;
-  limits?: {
-    timeout_seconds?: number;
-  };
-}
-
-export interface RunTrialInput {
-  benchmark: BenchmarkDefinition;
-  harness: HarnessName;
-  runId: string;
-  trialId: string;
-  workspaceRoot: string;
-  benchmarkRoot?: string;
-  promptRoot?: string;
-  strictTelemetry?: boolean;
-}
-
-export type TrialFailureClassification =
-  | "agent_failed"
-  | "environment_failed"
-  | "timeout"
-  | "budget_exceeded"
-  | "adapter_failed"
-  | "inconclusive";
-
-export interface RunTrialResult {
-  status: "completed" | "failed";
-  failure_classification?: TrialFailureClassification;
-  workspace: string;
-  workspace_source?: WorkspaceSourceProvenance;
-  process_diagnostics?: ProcessDiagnostics;
-  hook_command?: HookInstallation["hookCommand"];
-  hook_event_count?: number;
-  usage?: UsageReport;
-  artifact_paths?: {
-    hook_spool_path?: string;
-    transcript_path?: string;
-    diff_path?: string;
-    test_output_path?: string;
-  };
-}
-
 export interface RunBenchmarkInput {
-  benchmark: BenchmarkDefinition;
+  benchmark: BenchmarkTrialDefinition;
   harnesses: readonly HarnessName[];
   trials: number;
   runId: string;
@@ -101,7 +44,7 @@ export interface RunBenchmarkResult {
   trials: RunBenchmarkTrialResult[];
 }
 
-export class BenchmarkRunner {
+export class BenchmarkRunner implements BenchmarkTrialRunnerPort {
   public constructor(
     private readonly ports: {
       hookInstaller: InstallHarnessHooksPort;
@@ -191,6 +134,8 @@ export class BenchmarkRunner {
         ? harnessResult.transcriptPath
         : transcriptResolution.workspaceLocalTranscriptPath;
       artifactPaths.transcript_path = resolvedTranscriptPath;
+      artifactPaths.status_line_jsonl_path = harnessResult.statusLineJsonlPath;
+      artifactPaths.otel_jsonl_path = harnessResult.otelJsonlPath;
 
       if (harnessSucceeded) {
         validationResult = await this.runValidationIfConfigured(input, workspace);
@@ -206,15 +151,24 @@ export class BenchmarkRunner {
         trialId: input.trialId,
         workspace,
         transcriptPath: artifactCollectorTranscriptPath,
+        statusLineJsonlPath: harnessResult.statusLineJsonlPath,
+        otelJsonlPath: harnessResult.otelJsonlPath,
         diffPath,
         testOutputPath
       });
       const hookEventCount = await this.countHookEvents(spoolPath);
+      const hookMetrics = await this.hookMetrics({
+        input,
+        spoolPath,
+        observedAt: harnessResult.processDiagnostics?.exit.ended_at ?? new Date().toISOString()
+      });
       const usage = await this.captureUsageIfConfigured({
         input,
         workspace,
         spoolPath,
         transcriptPath: resolvedTranscriptPath,
+        statusLineJsonlPath: harnessResult.statusLineJsonlPath,
+        otelJsonlPath: harnessResult.otelJsonlPath,
         processDiagnostics: harnessResult.processDiagnostics
       });
 
@@ -227,7 +181,9 @@ export class BenchmarkRunner {
           process_diagnostics: harnessResult.processDiagnostics,
           hook_command: installation.hookCommand,
           hook_event_count: hookEventCount,
+          metrics: hookMetrics,
           usage,
+          notes: [],
           artifact_paths: artifactPaths
         };
       } else if (harnessResult.exitCode !== 0) {
@@ -239,7 +195,9 @@ export class BenchmarkRunner {
           process_diagnostics: harnessResult.processDiagnostics,
           hook_command: installation.hookCommand,
           hook_event_count: hookEventCount,
+          metrics: hookMetrics,
           usage,
+          notes: [],
           artifact_paths: artifactPaths
         };
       } else if (validationResult?.status === "failed") {
@@ -251,7 +209,9 @@ export class BenchmarkRunner {
           process_diagnostics: harnessResult.processDiagnostics,
           hook_command: installation.hookCommand,
           hook_event_count: hookEventCount,
+          metrics: hookMetrics,
           usage,
+          notes: [],
           artifact_paths: artifactPaths
         };
       } else {
@@ -262,7 +222,9 @@ export class BenchmarkRunner {
           process_diagnostics: harnessResult.processDiagnostics,
           hook_command: installation.hookCommand,
           hook_event_count: hookEventCount,
+          metrics: hookMetrics,
           usage,
+          notes: harnessInternalVerificationNotes(harnessResult.processDiagnostics, validationResult),
           artifact_paths: artifactPaths
         };
       }
@@ -297,6 +259,20 @@ export class BenchmarkRunner {
     return this.ports.hookEventCounter?.count({ spoolPath });
   }
 
+  private async hookMetrics(input: {
+    readonly input: RunTrialInput;
+    readonly spoolPath: string;
+    readonly observedAt: string;
+  }) {
+    return this.ports.hookEventCounter?.metrics?.({
+      spoolPath: input.spoolPath,
+      provider: input.input.harness,
+      runId: input.input.runId,
+      trialId: input.input.trialId,
+      observedAt: input.observedAt
+    });
+  }
+
   private async resolveTranscriptIfConfigured(input: {
     readonly input: RunTrialInput;
     readonly workspace: string;
@@ -320,6 +296,8 @@ export class BenchmarkRunner {
     readonly workspace: string;
     readonly spoolPath: string;
     readonly transcriptPath?: string;
+    readonly statusLineJsonlPath?: string;
+    readonly otelJsonlPath?: string;
     readonly processDiagnostics?: ProcessDiagnostics;
   }): Promise<UsageReport | undefined> {
     return this.ports.usageCapture?.captureUsage({
@@ -330,6 +308,8 @@ export class BenchmarkRunner {
       hookSpoolPath: input.spoolPath,
       transcriptPath: input.transcriptPath,
       transcriptEvidenceRef: input.transcriptPath === undefined ? undefined : "transcript.jsonl",
+      statusLineJsonlPath: input.statusLineJsonlPath,
+      otelJsonlPath: input.otelJsonlPath,
       processStdout: input.processDiagnostics?.stdout,
       processStderr: input.processDiagnostics?.stderr
     });
@@ -446,7 +426,7 @@ export class BenchmarkRunner {
   }
 }
 
-function workspaceSourceFor(benchmark: BenchmarkDefinition): WorkspaceSource | undefined {
+function workspaceSourceFor(benchmark: BenchmarkTrialDefinition): WorkspaceSource | undefined {
   if (benchmark.repo?.url === undefined || benchmark.repo.base_ref === undefined) {
     return undefined;
   }
@@ -459,6 +439,27 @@ function workspaceSourceFor(benchmark: BenchmarkDefinition): WorkspaceSource | u
   };
 }
 
+function harnessInternalVerificationNotes(
+  diagnostics: ProcessDiagnostics | undefined,
+  validationResult: ValidationRunnerResult | undefined
+): string[] {
+  if (validationResult?.status !== "passed" || diagnostics === undefined) {
+    return [];
+  }
+
+  const output = `${diagnostics.stdout}\n${diagnostics.stderr}`;
+  if (!containsHarnessInternalVerificationFailure(output)) {
+    return [];
+  }
+
+  return ["harness-internal verification output contained failures; final BMH validation passed"];
+}
+
+function containsHarnessInternalVerificationFailure(output: string): boolean {
+  return /\bFAIL\b/.test(output)
+    || /\b[1-9]\d*\s+failed\b/i.test(output)
+    || /listen\s+EPERM/i.test(output);
+}
 
 function provisionWorkspaceInput(input: RunTrialInput, source: WorkspaceSource | undefined): ProvisionWorkspaceInput {
   const provisionInput: ProvisionWorkspaceInput = {

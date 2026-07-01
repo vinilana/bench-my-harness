@@ -2,7 +2,7 @@ import { describe, expect, test } from "vitest";
 
 import { InMemoryNormalizedEventStore } from "../../src/adapters/outbound/storage/in-memory-normalized-event-store.js";
 import { InMemoryRawEventStore } from "../../src/adapters/outbound/storage/in-memory-raw-event-store.js";
-import { normalizeRawHookEvent } from "../../src/application/use-cases/normalize-raw-hook-event.js";
+import { normalizeRawHookEvent } from "../../src/adapters/outbound/harnesses/provider-raw-hook-event-normalizer.js";
 import codexPreToolUse from "../fixtures/codex/pre-tool-use.json" with { type: "json" };
 
 describe("normalized event store", () => {

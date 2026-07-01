@@ -4,6 +4,10 @@ import { describe, expect, test } from "vitest";
 
 import { FilesystemWorkspaceProvisioner } from "../../src/adapters/outbound/filesystem/filesystem-workspace-provisioner.js";
 import { FilesystemSuiteResultStore } from "../../src/adapters/outbound/storage/filesystem-suite-result-store.js";
+import type {
+  AdapterCapabilityMatrix,
+  AdapterCapabilityResolverPort
+} from "../../src/application/ports/adapter-capability-resolver-port.js";
 import type { ArtifactCollectorInput, ArtifactCollectorPort } from "../../src/application/ports/artifact-collector-port.js";
 import type {
   HarnessRunnerInput,
@@ -99,7 +103,7 @@ describe("spec suite real git workspaces", () => {
       workspaceProvisioner: new FilesystemWorkspaceProvisioner()
     });
 
-    const report = await new RunSpecSuiteUseCase().execute({
+    const report = await new RunSpecSuiteUseCase(undefined, new InMemoryCapabilityResolver()).execute({
       loadedCatalog: loadedCatalog(fixture.repoUrl, fixture.baseSha, fixture.goldenSha, ["login-validation"]),
       runner,
       runId: "run_real_git_comparable",
@@ -115,6 +119,33 @@ describe("spec suite real git workspaces", () => {
     expect(report.global_summary.comparability_status).toBe("comparable");
   });
 });
+
+class InMemoryCapabilityResolver implements AdapterCapabilityResolverPort {
+  public resolve(harness: "codex" | "claude_code"): AdapterCapabilityMatrix {
+    return {
+      provider: harness,
+      adapter_version: `${harness === "codex" ? "codex" : "claude-code"}-hooks@test`,
+      supported_provider_versions: [`${harness === "codex" ? "codex" : "claude-code"} hooks schema`],
+      capabilities: {
+        session_lifecycle: "native",
+        turn_lifecycle: harness === "codex" ? "partial" : "native",
+        tool_lifecycle: harness === "codex" ? "partial" : "native",
+        token_usage: "unavailable",
+        context_usage: harness === "codex" ? "unavailable" : "partial",
+        project_local_hooks: true
+      },
+      capability_evidence: {
+        session_lifecycle: ["tests/acceptance/spec-suite-real-workspace.test.ts"],
+        turn_lifecycle: ["tests/acceptance/spec-suite-real-workspace.test.ts"],
+        tool_lifecycle: ["tests/acceptance/spec-suite-real-workspace.test.ts"],
+        token_usage: ["tests/acceptance/spec-suite-real-workspace.test.ts"],
+        context_usage: ["tests/acceptance/spec-suite-real-workspace.test.ts"],
+        project_local_hooks: ["tests/acceptance/spec-suite-real-workspace.test.ts"]
+      },
+      known_gaps: ["test resolver"]
+    };
+  }
+}
 
 function loadedCatalog(
   repoUrl: string,

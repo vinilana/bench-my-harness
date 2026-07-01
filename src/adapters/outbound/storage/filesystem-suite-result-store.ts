@@ -2,6 +2,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 import { FilesystemArtifactFinalizer } from "../filesystem/filesystem-artifact-finalizer.js";
+import { safePathSegment } from "../filesystem/path-safety.js";
 import type { ArtifactFinalizerPort } from "../../../application/ports/artifact-finalizer-port.js";
 import type {
   SuiteResultStore,
@@ -9,7 +10,9 @@ import type {
   TrialProcessDiagnosticsRecord
 } from "../../../application/ports/suite-result-store.js";
 import type { SuiteReport, SuiteTrialReport } from "../../../domain/reports/suite-report.js";
-import { buildSuiteReport, renderSuiteReportHtml } from "../../../domain/reports/suite-report.js";
+import { buildSuiteReport } from "../../../domain/reports/suite-report.js";
+import { redactSecrets } from "../../../domain/security/redact-secrets.js";
+import { renderSuiteReportHtml } from "../reports/suite-html-report.js";
 
 export class FilesystemSuiteResultStore implements SuiteResultStore {
   private readonly artifactFinalizer: ArtifactFinalizerPort;
@@ -42,11 +45,12 @@ export class FilesystemSuiteResultStore implements SuiteResultStore {
       ...input.report,
       trials: finalizedTrials
     };
+    const sanitizedReport = sanitizeSuiteReport(finalizedReport);
 
-    await writeFile(this.resultsPath(input.runId), `${JSON.stringify(finalizedReport, null, 2)}\n`, "utf8");
-    await writeFile(join(runDir, "report.html"), renderSuiteReportHtml(finalizedReport), "utf8");
+    await writeFile(this.resultsPath(input.runId), `${JSON.stringify(sanitizedReport, null, 2)}\n`, "utf8");
+    await writeFile(join(runDir, "report.html"), renderSuiteReportHtml(sanitizedReport), "utf8");
 
-    for (const trial of finalizedTrials) {
+    for (const trial of sanitizedReport.trials) {
       const trialPath = this.trialPath(input.runId, trial);
       await mkdir(dirname(trialPath), { recursive: true });
       await writeFile(trialPath, `${JSON.stringify(trial, null, 2)}\n`, "utf8");
@@ -55,7 +59,7 @@ export class FilesystemSuiteResultStore implements SuiteResultStore {
 
   public async findByRunId(runId: string): Promise<SuiteReport | undefined> {
     try {
-      return normalizeStoredSuiteReport(JSON.parse(await readFile(this.resultsPath(runId), "utf8")) as unknown);
+      return sanitizeSuiteReport(normalizeStoredSuiteReport(JSON.parse(await readFile(this.resultsPath(runId), "utf8")) as unknown));
     } catch (error) {
       if (isNotFoundError(error)) {
         return undefined;
@@ -70,21 +74,34 @@ export class FilesystemSuiteResultStore implements SuiteResultStore {
   }
 
   private trialPath(runId: string, trial: SuiteTrialReport): string {
-    return join(this.runDir(runId), "specs", trial.spec_id, trial.harness, trial.trial_id, "result.json");
+    return join(
+      this.runDir(runId),
+      "specs",
+      safePathSegment(trial.spec_id, "spec id"),
+      safePathSegment(trial.harness, "harness"),
+      safePathSegment(trial.trial_id, "trial id"),
+      "result.json"
+    );
   }
 
   private async writeProcessDiagnostics(
     runId: string,
     record: TrialProcessDiagnosticsRecord
   ): Promise<void> {
-    const trialDir = join(this.runDir(runId), "specs", record.spec_id, record.harness, record.trial_id);
+    const trialDir = join(
+      this.runDir(runId),
+      "specs",
+      safePathSegment(record.spec_id, "spec id"),
+      safePathSegment(record.harness, "harness"),
+      safePathSegment(record.trial_id, "trial id")
+    );
 
     await mkdir(trialDir, { recursive: true });
-    await writeFile(join(trialDir, "process-stdout.txt"), record.diagnostics.stdout, "utf8");
-    await writeFile(join(trialDir, "process-stderr.txt"), record.diagnostics.stderr, "utf8");
+    await writeFile(join(trialDir, "process-stdout.txt"), redactSecrets(record.diagnostics.stdout).redacted, "utf8");
+    await writeFile(join(trialDir, "process-stderr.txt"), redactSecrets(record.diagnostics.stderr).redacted, "utf8");
     await writeFile(
       join(trialDir, "process-exit.json"),
-      `${JSON.stringify(record.diagnostics.exit, null, 2)}\n`,
+      redactSecrets(`${JSON.stringify(record.diagnostics.exit, null, 2)}\n`).redacted,
       "utf8"
     );
   }
@@ -119,6 +136,8 @@ export class FilesystemSuiteResultStore implements SuiteResultStore {
         workspace: finalization.workspace,
         hookSpoolPath: finalization.hook_spool_path,
         transcriptPath: finalization.transcript_path,
+        statusLineJsonlPath: finalization.status_line_jsonl_path,
+        otelJsonlPath: finalization.otel_jsonl_path,
         diffPath: finalization.diff_path,
         testOutputPath: finalization.test_output_path,
         processDiagnostics: finalization.process_diagnostics
@@ -130,7 +149,13 @@ export class FilesystemSuiteResultStore implements SuiteResultStore {
       finalized.push({
         ...trial,
         artifact_refs: [
-          join("specs", trial.spec_id, trial.harness, trial.trial_id, "result.json"),
+          join(
+            "specs",
+            safePathSegment(trial.spec_id, "spec id"),
+            safePathSegment(trial.harness, "harness"),
+            safePathSegment(trial.trial_id, "trial id"),
+            "result.json"
+          ),
           ...result.artifactRefs
         ],
         artifact_integrity: {
@@ -143,11 +168,7 @@ export class FilesystemSuiteResultStore implements SuiteResultStore {
   }
 
   private runDir(runId: string): string {
-    if (!/^[A-Za-z0-9._-]+$/.test(runId)) {
-      throw new Error("invalid run id for suite result storage");
-    }
-
-    return join(this.options.root, runId);
+    return join(this.options.root, safePathSegment(runId, "run id"));
   }
 }
 
@@ -157,6 +178,46 @@ function trialKey(specId: string, harness: string, trialId: string): string {
 
 function isNotFoundError(error: unknown): boolean {
   return error instanceof Error && "code" in error && error.code === "ENOENT";
+}
+
+function sanitizeSuiteReport(input: SuiteReport): SuiteReport {
+  const redaction = { applied: false };
+  const sanitized = redactUnknown(input, redaction) as SuiteReport & { raw_payloads?: unknown };
+  const { raw_payloads: _rawPayloads, ...withoutRawPayloads } = sanitized;
+
+  return {
+    ...withoutRawPayloads,
+    security: {
+      ...withoutRawPayloads.security,
+      redaction: {
+        ...withoutRawPayloads.security.redaction,
+        status: redaction.applied ? "applied" : "not_needed",
+        raw_payloads_included: false
+      }
+    }
+  };
+}
+
+function redactUnknown(value: unknown, redaction: { applied: boolean }): unknown {
+  if (typeof value === "string") {
+    const result = redactSecrets(value);
+    redaction.applied = redaction.applied || result.redactionApplied;
+    return result.redacted;
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((item) => redactUnknown(item, redaction));
+  }
+
+  if (value !== null && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value).flatMap(([key, nested]) =>
+        key === "raw_payloads" || nested === undefined ? [] : [[key, redactUnknown(nested, redaction)]]
+      )
+    );
+  }
+
+  return value;
 }
 
 function normalizeStoredSuiteReport(value: unknown): SuiteReport {
@@ -196,6 +257,7 @@ function normalizeStoredSuiteReport(value: unknown): SuiteReport {
       artifact_refs?: string[];
       diagnostics?: SuiteTrialReport["diagnostics"];
       comparability?: { status: "comparable" | "limited" | "not_comparable"; reasons?: string[] };
+      adapter_capabilities?: SuiteTrialReport["adapter_capabilities"];
       notes?: string[];
       tags?: string[];
       workspace_source?: SuiteTrialReport["workspace_source"];
@@ -222,6 +284,7 @@ function normalizeStoredSuiteReport(value: unknown): SuiteReport {
         reasons: trial.comparability?.reasons ?? []
       },
       metrics: normalizeMetrics(trial.metrics),
+      adapter_capabilities: trial.adapter_capabilities,
       notes: trial.notes ?? []
     };
   });

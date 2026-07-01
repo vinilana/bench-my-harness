@@ -100,6 +100,7 @@ describe("real harness command profiles", () => {
 
       expect(output.stderr()).toBe("");
       expect(capture.argv.length).toBeGreaterThan(0);
+      expect(capture.argv).toEqual(expect.arrayContaining(["-p", "--output-format", "json"]));
       expect(capture.prompt).toBe("Generate the project commands without leaking secrets.\n");
       return;
     }

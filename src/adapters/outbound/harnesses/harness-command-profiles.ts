@@ -44,8 +44,12 @@ export function getBuiltInHarnessCommandProfile(harness: HarnessName): HarnessCo
 
   return {
     harness,
-    capabilityStatus: "unsupported",
-    reason: "Claude Code real process command profile is not implemented for this CLI build"
+    capabilityStatus: "supported",
+    command: {
+      executable: "claude",
+      args: ["-p", "--output-format", "json"],
+      promptDelivery: "stdin"
+    }
   };
 }
 

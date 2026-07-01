@@ -9,6 +9,8 @@ export interface TrialArtifactFinalizationRecord {
   workspace?: string;
   hook_spool_path?: string;
   transcript_path?: string;
+  status_line_jsonl_path?: string;
+  otel_jsonl_path?: string;
   diff_path?: string;
   test_output_path?: string;
   process_diagnostics?: ProcessDiagnostics;

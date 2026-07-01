@@ -7,7 +7,7 @@ import { FilesystemArtifactFinalizer } from "../../src/adapters/outbound/filesys
 import { FilesystemProviderTranscriptResolver } from "../../src/adapters/outbound/filesystem/filesystem-provider-transcript-resolver.js";
 
 describe("provider transcript artifact finalization", () => {
-  test("copies a hook-referenced provider transcript into the trial artifact directory", async () => {
+  test("copies a redacted hook-referenced provider transcript into the trial artifact directory", async () => {
     const root = await mkdtemp(join(tmpdir(), "bmh-provider-finalization-"));
     const runsRoot = join(root, "runs");
     const workspace = join(root, "workspace");
@@ -16,7 +16,13 @@ describe("provider transcript artifact finalization", () => {
     const hooks = join(root, "hooks.jsonl");
     await mkdir(join(codexHome, "sessions", "2026", "06", "21"), { recursive: true });
     await mkdir(workspace, { recursive: true });
-    await writeFile(transcript, jsonl({ timestamp: "2026-06-21T10:00:01.000Z", payload: { cwd: workspace } }));
+    await writeFile(transcript, jsonl({
+      timestamp: "2026-06-21T10:00:01.000Z",
+      payload: {
+        cwd: workspace,
+        command: "echo OPENAI_API_KEY=sk-test-1234567890"
+      }
+    }));
     await writeFile(hooks, jsonl({ hook_event_name: "Stop", transcript_path: transcript }));
 
     const result = await new FilesystemArtifactFinalizer({
@@ -33,10 +39,23 @@ describe("provider transcript artifact finalization", () => {
     });
 
     const trialDir = join(runsRoot, "run_provider_transcript", "specs", "spec_1", "codex", "trial_1");
-    await expect(readFile(join(trialDir, "transcript.jsonl"), "utf8")).resolves.toContain("\"cwd\"");
+    const copiedTranscript = await readFile(join(trialDir, "transcript.jsonl"), "utf8");
+    expect(copiedTranscript).toContain("\"cwd\"");
+    expect(copiedTranscript).toContain("[REDACTED]");
+    expect(copiedTranscript).not.toContain("sk-test-1234567890");
     expect(result.artifactRefs).toContain("specs/spec_1/codex/trial_1/transcript.jsonl");
     expect(result.artifactIndex).toEqual(expect.arrayContaining([
-      expect.objectContaining({ ref: "transcript.jsonl", exists: true, kind: "transcript" })
+      expect.objectContaining({
+        ref: "transcript.jsonl",
+        exists: true,
+        kind: "transcript",
+        capture_source: "hook_spool",
+        confidence: "high",
+        redaction: expect.objectContaining({
+          status: "applied",
+          raw_payloads_included: false
+        })
+      })
     ]));
   });
 
