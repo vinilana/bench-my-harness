@@ -89,6 +89,12 @@ describe("spec suite HTML report", () => {
     expect(output.stderr()).toBe("");
     expect(html).toContain("Core regression suite");
     expect(html).toContain("run_html");
+    expect(html).toContain("Created by");
+    expect(html).toContain("AI Coders Academy");
+    expect(html).toContain("Contribute on GitHub");
+    expect(html).toContain("Visit AI Coders Academy");
+    expect(html).toContain("href=\"https://github.com/vinilana/bench-my-harness\"");
+    expect(html).toContain("href=\"https://aicoders.academy\"");
     expect(html).toContain("filter-harness");
     expect(html).toContain("filter-spec");
     expect(html).toContain("filter-tag");

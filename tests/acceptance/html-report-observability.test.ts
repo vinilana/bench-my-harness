@@ -22,6 +22,12 @@ describe("HTML report observability", () => {
     const html = renderSuiteReportHtml(report);
 
     expect(html).toContain("Redaction: not_needed");
+    expect(html).toContain("Created by");
+    expect(html).toContain("AI Coders Academy");
+    expect(html).toContain("Contribute on GitHub");
+    expect(html).toContain("Visit AI Coders Academy");
+    expect(html).toContain("href=\"https://github.com/vinilana/bench-my-harness\"");
+    expect(html).toContain("href=\"https://aicoders.academy\"");
     expect(html).toContain("ranking-dimension");
     expect(html).toContain("overall score");
     expect(html).toContain("duration");
@@ -163,6 +169,8 @@ describe("HTML report observability", () => {
     expect(tableCount).toBeGreaterThan(0);
     expect(framedTableCount).toBe(tableCount);
     expect(html).toContain(".table-frame");
+    expect(html).toContain(".header-title-row");
+    expect(html).toContain(".header-actions");
     expect(html).toContain("overflow-x: auto;");
     expect(html).toContain("min-width: 0;");
     expect(html).toContain("overflow-wrap: anywhere;");

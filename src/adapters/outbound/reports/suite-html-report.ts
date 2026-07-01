@@ -9,6 +9,7 @@ import type {
   SuiteUsageReport
 } from "../../../domain/reports/suite-report.js";
 import type { HtmlReportRendererPort } from "../../../application/ports/html-report-renderer-port.js";
+import { renderHeaderActions, renderHeaderOrigin } from "./report-header-links.js";
 import { renderStatusPill, reportStyles } from "./report-theme.js";
 
 export class SuiteHtmlReportRenderer implements HtmlReportRendererPort {
@@ -101,7 +102,13 @@ export function renderSuiteReportHtml(report: SuiteReport): string {
 </head>
 <body>
 <header class="app-header"><div class="app-header__inner">
+<div class="header-title-row">
+<div class="header-title-copy">
 <h1>${escapeHtml(sanitized.suite.name)}</h1>
+${renderHeaderOrigin()}
+</div>
+${renderHeaderActions()}
+</div>
 <div class="chips">
 <span class="chip">Run <b>${escapeHtml(sanitized.run_id)}</b></span>
 <span class="chip">Suite <b>${escapeHtml(sanitized.suite.id)}@${escapeHtml(sanitized.suite.version)}</b></span>

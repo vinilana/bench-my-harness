@@ -2,6 +2,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import type { SuiteReport, SuiteTrialReport } from "../../../domain/reports/suite-report.js";
+import { renderHeaderActions, renderHeaderOrigin } from "../reports/report-header-links.js";
 import { renderStatusPill, reportStyles } from "../reports/report-theme.js";
 import { renderSuiteReportHtml } from "../reports/suite-html-report.js";
 import { redactSecrets } from "../../../domain/security/redact-secrets.js";
@@ -144,7 +145,13 @@ function renderHtml(input: HtmlReport): string {
 </head>
 <body>
 <header class="app-header"><div class="app-header__inner">
+<div class="header-title-row">
+<div class="header-title-copy">
 <h1>${escapeHtml(report.suite.name)}</h1>
+${renderHeaderOrigin()}
+</div>
+${renderHeaderActions()}
+</div>
 <div class="chips">
 <span class="chip">Run <b>${escapeHtml(report.run_id)}</b></span>
 <span class="chip">Suite <b>${escapeHtml(report.suite.id)}@${escapeHtml(report.suite.version)}</b></span>

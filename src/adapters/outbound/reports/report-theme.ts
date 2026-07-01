@@ -103,6 +103,57 @@ a:hover { text-decoration: underline; }
   font-weight: 700;
   letter-spacing: -0.02em;
 }
+.header-title-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  min-width: 0;
+}
+.header-title-copy {
+  min-width: 0;
+}
+.header-origin {
+  margin: 6px 0 0;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+.header-origin a { font-weight: 700; }
+.header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.header-cta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 34px;
+  padding: 7px 12px;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.2;
+  text-align: center;
+  white-space: nowrap;
+}
+.header-cta:hover {
+  background: var(--accent-soft);
+  text-decoration: none;
+}
+.header-cta--primary {
+  color: #ffffff;
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.header-cta--primary:hover {
+  color: #ffffff;
+  filter: brightness(0.96);
+}
 .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 .chip {
   display: inline-flex;
@@ -167,6 +218,7 @@ section > h3 {
 .summary {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  align-items: start;
   gap: 12px;
 }
 .metric {
@@ -177,6 +229,7 @@ section > h3 {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  min-width: 0;
 }
 .metric strong, .metric .metric__label {
   font-size: 11.5px;
@@ -185,7 +238,7 @@ section > h3 {
   letter-spacing: 0.05em;
   color: var(--text-muted);
 }
-.metric__value { font-size: 26px; font-weight: 700; letter-spacing: -0.02em; color: var(--text); }
+.metric__value { font-size: 26px; font-weight: 700; letter-spacing: -0.02em; color: var(--text); overflow-wrap: anywhere; }
 
 table {
   width: 100%;
@@ -209,13 +262,13 @@ thead th {
   color: var(--text-muted);
   text-align: left;
   padding: 11px 14px;
-  overflow-wrap: anywhere;
+  white-space: nowrap;
 }
 tbody td {
   padding: 11px 14px;
   border-top: 1px solid var(--border);
   vertical-align: top;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 tbody tr:nth-child(even) td { background: var(--surface-2); }
 tbody tr:hover td { background: var(--accent-soft); }
@@ -231,7 +284,16 @@ table caption { caption-side: top; text-align: left; padding: 0 0 10px; color: v
   border-radius: var(--radius-sm);
   background: var(--surface);
   -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
 }
+.table-frame::-webkit-scrollbar { height: 10px; }
+.table-frame::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 999px;
+  border: 3px solid var(--surface);
+}
+.table-frame::-webkit-scrollbar-track { background: transparent; }
 .table-frame table {
   border: 0;
   border-radius: 0;
@@ -295,6 +357,8 @@ input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: 1p
 .source-badge {
   display: inline-flex;
   align-items: center;
+  min-width: 88px;
+  max-width: 100%;
   font-family: var(--mono);
   font-size: 11px;
   font-weight: 500;
@@ -304,6 +368,7 @@ input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: 1p
   border-radius: 6px;
   padding: 1px 6px;
   margin: 1px;
+  overflow-wrap: anywhere;
 }
 
 code { font-family: var(--mono); font-size: 12px; background: var(--surface-3); border: 1px solid var(--border); border-radius: 5px; padding: 1px 5px; }
@@ -360,6 +425,16 @@ code { font-family: var(--mono); font-size: 12px; background: var(--surface-3); 
 
 @media (max-width: 720px) {
   .app-header__inner { padding: 16px; }
+  .header-title-row { display: grid; gap: 12px; }
+  .header-actions {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    justify-content: stretch;
+  }
+  .header-cta {
+    width: 100%;
+    white-space: normal;
+  }
   main { padding: 18px 12px 40px; }
   section { padding: 16px; }
   .filters { display: grid; grid-template-columns: minmax(0, 1fr); }

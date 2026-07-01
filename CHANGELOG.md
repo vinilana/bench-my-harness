@@ -18,6 +18,7 @@ This project follows semantic versioning during the v0 phase: minor versions may
 - Added adapter capability matrices to suite trial reports and HTML reports so harness coverage/version gaps are visible per trial.
 - Added derived source/confidence/evidence metadata for suite `cost_per_1m_tokens` values.
 - Added explicit raw hook event retention and redaction metadata so stored events can prove whether payloads were retained, scanned, and redacted before normalization.
+- Added generated HTML report header links for GitHub contributions and AI Coders Academy project attribution.
 
 ### Changed
 
@@ -30,6 +31,7 @@ This project follows semantic versioning during the v0 phase: minor versions may
 - Updated suite observability summaries to include cache read and cache write token dimensions.
 - Updated suite comparability to mark model identity and adapter capability mismatches as limited comparisons.
 - Updated HTML suite reports to show source badges and evidence refs for cost-per-token ratios.
+- Improved HTML report table readability so column headers stay on one line and wide tables scroll within their frames instead of collapsing cell text character by character, with source badges wrapping to a stable minimum width and summary metric cards hugging their content.
 - Moved suite HTML report rendering and shared report theme helpers into outbound report adapters so the domain report model stays presentation-free.
 - Moved benchmark report JSON/Markdown rendering behind an outbound renderer port so domain report models no longer own presentation output.
 - Moved provider raw hook normalization behind an application port and outbound adapter so provider hook vocabularies stay outside application use cases.
@@ -57,6 +59,7 @@ This project follows semantic versioning during the v0 phase: minor versions may
 - Fixed hook-derived tool-call metrics so terminal-only completion/failure events count as calls, verified no-tool hook streams report zero calls/failures, and report rows include hook spool/event evidence refs.
 - Fixed normalized hook events so they preserve raw redaction status and redaction evidence hashes instead of defaulting security evidence to unknown.
 - Fixed suite comparability so missing adapter capability matrices are reported as limited comparisons instead of being silently ignored.
+- Fixed generated HTML suite report table layouts so wide benchmark data stays within the page on mobile and desktop.
 
 ## [0.4.1] - 2026-06-30
 
