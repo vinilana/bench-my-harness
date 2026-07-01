@@ -117,9 +117,12 @@ ${renderHeaderActions()}
 <span class="chip">Comparability ${renderStatusPill(sanitized.global_summary.comparability_status)}</span>
 </div>
 </div></header>
+${renderReportNav()}
 <main>
-<section class="summary-section" aria-label="Global benchmark summary">
+<section id="overview" data-nav-section class="section" aria-label="Global benchmark summary">
 <h2>Global Benchmark Summary</h2>
+<p class="section__desc">Run-level outcomes across ${sanitized.spec_count} specs and ${sanitized.trial_count} trials.</p>
+${renderWinnerCallout(sanitized)}
 <div class="summary">
 <div class="metric"><span class="metric__label">Specs</span><span class="metric__value">${sanitized.spec_count}</span></div>
 <div class="metric"><span class="metric__label">Trials</span><span class="metric__value">${sanitized.trial_count}</span></div>
@@ -130,8 +133,9 @@ ${renderHeaderActions()}
 </div>
 <p class="section-note">Comparability reasons: ${escapeHtml(comparabilityReasons)}</p>
 </section>
-<section>
+<section id="ranking" data-nav-section class="section">
 <h2>Harness Ranking</h2>
+<p class="section__desc">Sortable leaderboard — choose a dimension to re-rank. Rank 1 is highlighted.</p>
 <div class="filters">
 <label>Ranking dimension <select id="ranking-dimension" data-ranking-status="${escapeHtml(rankingStatus)}">
 <option value="overall">overall score</option>
@@ -149,8 +153,9 @@ ${renderTableFrame(`<table>
 <tbody id="ranking-rows">${rankingRows}</tbody>
 </table>`)}
 </section>
-<section>
+<section id="charts" data-nav-section class="section">
 <h2>Visual Summaries</h2>
+<p class="section__desc">Per-harness comparison across duration, score, tokens, cost, and coverage.</p>
 <div class="charts">
 ${renderBarChart("Duration by harness", sanitized.harness_summaries.map((summary) => ({ label: summary.harness, value: summary.mean_duration_ms })), "ms")}
 ${renderBarChart("Score by harness", sanitized.harness_summaries.map((summary) => ({ label: summary.harness, value: summary.mean_score })), "score")}
@@ -160,49 +165,33 @@ ${renderBarChart("Observability coverage by harness", sanitized.harness_summarie
 ${renderBarChart("Artifact integrity by harness/spec", sanitized.harness_summaries.map((summary) => ({ label: summary.harness, value: artifactIntegrityScore(sanitized.trials.filter((trial) => trial.harness === summary.harness)) })), "present")}
 </div>
 </section>
-<section>
+<section id="usage" data-nav-section class="section">
 <h2>Usage Observability</h2>
+<p class="section__desc">Token, cost, model, and tool usage per harness. Detail groups are collapsed — click a row to expand.</p>
 <h3>Token and cost by harness</h3>
 ${renderTokenCostUsageList(sanitized)}
-<h3>LLM/model by harness</h3>
-${renderUsageList(sanitized, "llms")}
-<h3>Subagents by harness</h3>
-${renderUsageList(sanitized, "subagents")}
-<h3>Skills by harness</h3>
-${renderUsageList(sanitized, "skills")}
-<h3>MCP usage by harness</h3>
-${renderUsageList(sanitized, "mcps")}
-<h3>Hook tool calls by harness</h3>
-${renderTableFrame(renderHookToolCallList(sanitized))}
+${renderDisclosure("LLM/model by harness", renderUsageList(sanitized, "llms"))}
+${renderDisclosure("Subagents by harness", renderUsageList(sanitized, "subagents"))}
+${renderDisclosure("Skills by harness", renderUsageList(sanitized, "skills"))}
+${renderDisclosure("MCP usage by harness", renderUsageList(sanitized, "mcps"))}
+${renderDisclosure("Hook tool calls by harness", renderTableFrame(renderHookToolCallList(sanitized)))}
 </section>
-<section>
-<h2>Observability Coverage Matrix</h2>
-${renderTableFrame(renderCoverageMatrix(sanitized))}
-</section>
-<section>
-<h2>Adapter Capabilities</h2>
-${renderTableFrame(renderAdapterCapabilities(sanitized))}
-</section>
-<section>
-<h2>Artifact Integrity</h2>
-${renderTableFrame(renderArtifactIntegrity(sanitized))}
-</section>
-<section>
-<h2>Harness Summary</h2>
-${renderTableFrame(`<table>
+<section id="harnesses" data-nav-section class="section">
+<h2>Harness &amp; Spec Metrics</h2>
+<p class="section__desc">Full per-harness metric table and per-spec outcomes.</p>
+${renderDisclosure("Harness Summary", renderTableFrame(`<table>
 <thead><tr><th>Harness</th><th>Trials</th><th>Completed</th><th>Failed</th><th>Pass Rate</th><th>Mean Score</th><th>Mean Duration</th><th>Total Cost</th><th>Total Tokens</th><th>Input Tokens</th><th>Output Tokens</th><th>Cost / 1M Tokens</th><th>Interactions</th><th>Tool Calls</th><th>Tool Failures</th><th>Unavailable Metrics</th></tr></thead>
 <tbody>${harnessRows}</tbody>
-</table>`)}
-</section>
-<section>
-<h2>Per-Spec Summary</h2>
+</table>`))}
+<h3>Per-Spec Summary</h3>
 ${renderTableFrame(`<table>
 <thead><tr><th>Spec</th><th>Version</th><th>Tags</th><th>Trials</th><th>Completed</th><th>Failed</th><th>Inconclusive</th></tr></thead>
 <tbody>${specRows}</tbody>
 </table>`)}
 </section>
-<section>
+<section id="trials" data-nav-section class="section">
 <h2>Trial Details</h2>
+<p class="section__desc">Per-trial process, usage, and artifact evidence. Filter or switch views below.</p>
 <div class="views" role="group" aria-label="Report view controls">
 <button type="button" data-view="aggregate" aria-pressed="true">Aggregate suite view</button>
 <button type="button" data-view="per-spec" aria-pressed="false">Per-spec view</button>
@@ -220,10 +209,18 @@ ${renderTableFrame(`<table>
 <tbody id="trial-rows">${trialRows}</tbody>
 </table>`)}
 </section>
+<section id="diagnostics" data-nav-section class="section">
+<h2>Diagnostics</h2>
+<p class="section__desc">Observability coverage, adapter capabilities, and artifact integrity — expand for detail.</p>
+${renderDisclosure("Observability Coverage Matrix", renderTableFrame(renderCoverageMatrix(sanitized)))}
+${renderDisclosure("Adapter Capabilities", renderTableFrame(renderAdapterCapabilities(sanitized)))}
+${renderDisclosure("Artifact Integrity", renderTableFrame(renderArtifactIntegrity(sanitized)))}
+</section>
 </main>
 <script>
 const filters = ["harness", "spec", "tag", "status", "comparability"];
 labelResponsiveTables();
+highlightNav();
 for (const name of filters) document.getElementById("filter-" + name).addEventListener("input", applyFilters);
 document.getElementById("ranking-dimension").addEventListener("change", updateRanking);
 const viewButtons = Array.from(document.querySelectorAll(".views button"));
@@ -268,6 +265,23 @@ function labelResponsiveTables() {
     }
   }
 }
+function highlightNav() {
+  if (typeof IntersectionObserver === "undefined") return;
+  const links = Array.from(document.querySelectorAll(".report-nav__link"));
+  if (links.length === 0) return;
+  const byId = {};
+  for (const link of links) byId[link.getAttribute("href").slice(1)] = link;
+  const observer = new IntersectionObserver((entries) => {
+    for (const entry of entries) {
+      const link = byId[entry.target.id];
+      if (link && entry.isIntersecting) {
+        for (const other of links) other.classList.remove("is-active");
+        link.classList.add("is-active");
+      }
+    }
+  }, { rootMargin: "-45% 0px -50% 0px", threshold: 0 });
+  for (const section of document.querySelectorAll("[data-nav-section]")) observer.observe(section);
+}
 </script>
 </body>
 </html>
@@ -286,6 +300,61 @@ const toolFailureMetricNames = ["tool_calls_failed"] as const;
 
 function renderTableFrame(tableHtml: string): string {
   return `<div class="table-frame">${tableHtml}</div>`;
+}
+
+const NAV_SECTIONS: readonly (readonly [string, string])[] = [
+  ["overview", "Overview"],
+  ["ranking", "Ranking"],
+  ["charts", "Charts"],
+  ["usage", "Usage"],
+  ["harnesses", "Harnesses"],
+  ["trials", "Trials"],
+  ["diagnostics", "Diagnostics"]
+];
+
+function renderReportNav(): string {
+  const links = NAV_SECTIONS
+    .map(([id, label]) => `<a class="report-nav__link" href="#${id}">${escapeHtml(label)}</a>`)
+    .join("");
+
+  return `<nav class="report-nav" aria-label="Report sections"><div class="report-nav__inner">${links}</div></nav>`;
+}
+
+function renderDisclosure(title: string, bodyHtml: string, open = false): string {
+  return `<details class="disclosure"${open ? " open" : ""}><summary class="disclosure__summary"><span class="disclosure__title">${escapeHtml(title)}</span></summary><div class="disclosure__body">${bodyHtml}</div></details>`;
+}
+
+function renderWinnerCallout(report: SuiteReport): string {
+  const entries = rankingEntries(report);
+  const best = entries[0];
+  if (best === undefined) {
+    return "";
+  }
+
+  const fastest = entries.find((entry) => entry.durationRank === 1);
+  const cheapest = entries.find((entry) => entry.costRank === 1);
+  const efficient = entries.find((entry) => entry.tokenEfficiencyRank === 1);
+  const leaders = [
+    fastest === undefined ? "" : renderLeaderChip("Fastest", fastest.summary.harness, formatNullable(fastest.summary.mean_duration_ms, " ms")),
+    cheapest === undefined ? "" : renderLeaderChip("Lowest cost", cheapest.summary.harness, formatNullable(cheapest.summary.total_cost_usd, " USD")),
+    efficient === undefined ? "" : renderLeaderChip("Most token-efficient", efficient.summary.harness, formatEfficiency(efficient.summary.total_tokens, efficient.summary.completed, " tok"))
+  ].join("");
+
+  return `<div class="hero">
+<div class="hero__main">
+<svg class="hero__trophy" width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 4h10v5a5 5 0 0 1-10 0V4z"/><path d="M17 5h3v1.5a3 3 0 0 1-3 3M7 5H4v1.5a3 3 0 0 0 3 3"/><path d="M12 14v3M8.5 21h7M9.5 21v-1.5a2.5 2.5 0 0 1 5 0V21"/></svg>
+<div class="hero__copy">
+<span class="hero__label">Best overall harness</span>
+<span class="hero__name">${escapeHtml(best.summary.harness)}</span>
+<span class="hero__meta">${best.summary.completed}/${best.summary.trials} trials completed · mean score ${best.summary.mean_score.toFixed(2)}</span>
+</div>
+</div>
+${leaders === "" ? "" : `<div class="hero__leaders">${leaders}</div>`}
+</div>`;
+}
+
+function renderLeaderChip(label: string, harness: string, value: string): string {
+  return `<div class="leader"><span class="leader__label">${escapeHtml(label)}</span><span class="leader__harness">${escapeHtml(harness)}</span><span class="leader__value">${escapeHtml(value)}</span></div>`;
 }
 
 function rankingEntries(report: SuiteReport): {

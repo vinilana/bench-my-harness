@@ -32,6 +32,7 @@ This project follows semantic versioning during the v0 phase: minor versions may
 - Updated suite comparability to mark model identity and adapter capability mismatches as limited comparisons.
 - Updated HTML suite reports to show source badges and evidence refs for cost-per-token ratios.
 - Improved HTML report table readability so column headers stay on one line and wide tables scroll within their frames instead of collapsing cell text character by character, with source badges wrapping to a stable minimum width and summary metric cards hugging their content.
+- Redesigned the HTML suite report information architecture for faster ingestion: a sticky in-page section navigation, an "at a glance" overview with a best-overall-harness callout and fastest/lowest-cost/most-efficient leaders, a highlighted rank-1 leaderboard row, and progressive disclosure that collapses secondary detail (granular usage groups, harness summary, coverage matrix, adapter capabilities, artifact integrity) into expandable panels. All data, control IDs, and ranking/filter behavior are unchanged.
 - Moved suite HTML report rendering and shared report theme helpers into outbound report adapters so the domain report model stays presentation-free.
 - Moved benchmark report JSON/Markdown rendering behind an outbound renderer port so domain report models no longer own presentation output.
 - Moved provider raw hook normalization behind an application port and outbound adapter so provider hook vocabularies stay outside application use cases.
