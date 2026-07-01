@@ -62,6 +62,11 @@ export function reportStyles(): string {
 
 * { box-sizing: border-box; }
 
+html {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
 body {
   margin: 0;
   font-family: var(--font);
@@ -70,6 +75,8 @@ body {
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   font-feature-settings: "tnum" 1;
+  max-width: 100%;
+  overflow-x: hidden;
 }
 
 a { color: var(--accent); text-decoration: none; }
@@ -84,9 +91,11 @@ a:hover { text-decoration: underline; }
   border-bottom: 1px solid var(--border);
 }
 .app-header__inner {
+  width: 100%;
   max-width: 1180px;
   margin: 0 auto;
   padding: 20px 24px;
+  min-width: 0;
 }
 .app-header h1 {
   margin: 0;
@@ -110,11 +119,13 @@ a:hover { text-decoration: underline; }
 .chip b { color: var(--text); font-weight: 600; }
 
 main {
+  width: 100%;
   max-width: 1180px;
   margin: 0 auto;
   padding: 28px 24px 64px;
   display: grid;
   gap: 22px;
+  min-width: 0;
 }
 
 section {
@@ -124,6 +135,8 @@ section {
   border-radius: var(--radius);
   box-shadow: var(--shadow);
   padding: 22px 24px;
+  min-width: 0;
+  overflow: hidden;
 }
 section > h2 {
   margin: 0 0 4px;
@@ -176,6 +189,7 @@ section > h3 {
 
 table {
   width: 100%;
+  min-width: 900px;
   border-collapse: separate;
   border-spacing: 0;
   background: var(--surface);
@@ -195,13 +209,34 @@ thead th {
   color: var(--text-muted);
   text-align: left;
   padding: 11px 14px;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
-tbody td { padding: 11px 14px; border-top: 1px solid var(--border); vertical-align: top; }
+tbody td {
+  padding: 11px 14px;
+  border-top: 1px solid var(--border);
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
 tbody tr:nth-child(even) td { background: var(--surface-2); }
 tbody tr:hover td { background: var(--accent-soft); }
 tbody tr[hidden] { display: none; }
 table caption { caption-side: top; text-align: left; padding: 0 0 10px; color: var(--text-muted); font-size: 13px; }
+
+.table-frame {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  -webkit-overflow-scrolling: touch;
+}
+.table-frame table {
+  border: 0;
+  border-radius: 0;
+}
+.table-frame table + table { margin-top: 0; }
 
 .filters {
   display: flex;
@@ -292,6 +327,7 @@ code { font-family: var(--mono); font-size: 12px; background: var(--surface-3); 
   border: 1px solid var(--border);
   border-radius: 8px;
   font-size: 13px;
+  overflow-wrap: anywhere;
 }
 
 .views { display: inline-flex; gap: 4px; margin: 0 0 16px; padding: 4px; background: var(--surface-3); border-radius: 10px; }
@@ -321,6 +357,61 @@ code { font-family: var(--mono); font-size: 12px; background: var(--surface-3); 
 .trial p { margin: 4px 0; font-size: 13px; color: var(--text-muted); }
 .trial p b { color: var(--text); }
 .muted, .meta { color: var(--text-muted); font-size: 13px; }
+
+@media (max-width: 720px) {
+  .app-header__inner { padding: 16px; }
+  main { padding: 18px 12px 40px; }
+  section { padding: 16px; }
+  .filters { display: grid; grid-template-columns: minmax(0, 1fr); }
+  input, select { min-width: 0; width: 100%; }
+  .charts { grid-template-columns: minmax(0, 1fr); }
+  .views { display: grid; grid-template-columns: minmax(0, 1fr); }
+  .table-frame {
+    overflow-x: visible;
+    border: 0;
+    background: transparent;
+  }
+  .table-frame table {
+    min-width: 0;
+    border: 0;
+    background: transparent;
+  }
+  .table-frame thead { display: none; }
+  .table-frame tbody {
+    display: grid;
+    gap: 10px;
+  }
+  .table-frame tbody tr {
+    display: block;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    overflow: hidden;
+  }
+  .table-frame tbody tr:nth-child(even) td,
+  .table-frame tbody tr:hover td {
+    background: transparent;
+  }
+  .table-frame tbody td {
+    display: grid;
+    grid-template-columns: minmax(104px, 36%) minmax(0, 1fr);
+    gap: 8px;
+    width: 100%;
+    padding: 8px 10px;
+    border-top: 1px solid var(--border);
+  }
+  .table-frame tbody td:first-child { border-top: 0; }
+  .table-frame tbody td::before {
+    content: attr(data-label);
+    min-width: 0;
+    color: var(--text-muted);
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    overflow-wrap: anywhere;
+  }
+}
 `;
 }
 

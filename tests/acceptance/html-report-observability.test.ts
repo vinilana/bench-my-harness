@@ -147,6 +147,29 @@ describe("HTML report observability", () => {
     expect(html).toContain("transcript.jsonl");
     expect(html).toContain("pricing:openai");
   });
+
+  test("keeps wide report tables inside responsive frames instead of expanding the page", () => {
+    const html = renderSuiteReportHtml(buildSuiteReport({
+      runId: "run_html_no_horizontal_page_overflow",
+      suite: { id: "observability-suite", version: "1.0.0", name: "Observability suite" },
+      selectedHarnesses: ["codex", "claude_code"],
+      generatedAt: "2026-06-21T12:00:00.000Z",
+      trials: [codexTrial(), claudeTrial()]
+    }));
+
+    const tableCount = html.match(/<table/g)?.length ?? 0;
+    const framedTableCount = html.match(/<div class="table-frame"><table/g)?.length ?? 0;
+
+    expect(tableCount).toBeGreaterThan(0);
+    expect(framedTableCount).toBe(tableCount);
+    expect(html).toContain(".table-frame");
+    expect(html).toContain("overflow-x: auto;");
+    expect(html).toContain("min-width: 0;");
+    expect(html).toContain("overflow-wrap: anywhere;");
+    expect(html).toContain("@media (max-width: 720px)");
+    expect(html).toContain("content: attr(data-label);");
+    expect(html).toContain("labelResponsiveTables();");
+  });
 });
 
 function codexTrial(): SuiteTrialReport {

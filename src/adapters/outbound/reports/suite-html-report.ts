@@ -137,10 +137,10 @@ export function renderSuiteReportHtml(report: SuiteReport): string {
 </select></label>
 </div>
 <p><strong>Best harness for selected ranking:</strong> <span id="best-harness">${escapeHtml(rankingEntries(sanitized)[0]?.summary.harness ?? "unavailable")}</span>. Cost and token rankings with missing data are ${escapeHtml(rankingStatus)}.</p>
-<table>
+${renderTableFrame(`<table>
 <thead><tr><th>Rank</th><th>Harness</th><th>Trials</th><th>Completed</th><th>Mean Score</th><th>Mean Duration</th><th>Total Cost</th><th>Total Tokens</th><th>Input Tokens</th><th>Output Tokens</th><th>Cost / 1M Tokens</th><th>Interactions</th><th>Tool Calls</th><th>Tool Failures</th><th>Tokens / Completed</th><th>Cost / Completed</th></tr></thead>
 <tbody id="ranking-rows">${rankingRows}</tbody>
-</table>
+</table>`)}
 </section>
 <section>
 <h2>Visual Summaries</h2>
@@ -166,33 +166,33 @@ ${renderUsageList(sanitized, "skills")}
 <h3>MCP usage by harness</h3>
 ${renderUsageList(sanitized, "mcps")}
 <h3>Hook tool calls by harness</h3>
-${renderHookToolCallList(sanitized)}
+${renderTableFrame(renderHookToolCallList(sanitized))}
 </section>
 <section>
 <h2>Observability Coverage Matrix</h2>
-${renderCoverageMatrix(sanitized)}
+${renderTableFrame(renderCoverageMatrix(sanitized))}
 </section>
 <section>
 <h2>Adapter Capabilities</h2>
-${renderAdapterCapabilities(sanitized)}
+${renderTableFrame(renderAdapterCapabilities(sanitized))}
 </section>
 <section>
 <h2>Artifact Integrity</h2>
-${renderArtifactIntegrity(sanitized)}
+${renderTableFrame(renderArtifactIntegrity(sanitized))}
 </section>
 <section>
 <h2>Harness Summary</h2>
-<table>
+${renderTableFrame(`<table>
 <thead><tr><th>Harness</th><th>Trials</th><th>Completed</th><th>Failed</th><th>Pass Rate</th><th>Mean Score</th><th>Mean Duration</th><th>Total Cost</th><th>Total Tokens</th><th>Input Tokens</th><th>Output Tokens</th><th>Cost / 1M Tokens</th><th>Interactions</th><th>Tool Calls</th><th>Tool Failures</th><th>Unavailable Metrics</th></tr></thead>
 <tbody>${harnessRows}</tbody>
-</table>
+</table>`)}
 </section>
 <section>
 <h2>Per-Spec Summary</h2>
-<table>
+${renderTableFrame(`<table>
 <thead><tr><th>Spec</th><th>Version</th><th>Tags</th><th>Trials</th><th>Completed</th><th>Failed</th><th>Inconclusive</th></tr></thead>
 <tbody>${specRows}</tbody>
-</table>
+</table>`)}
 </section>
 <section>
 <h2>Trial Details</h2>
@@ -208,14 +208,15 @@ ${renderArtifactIntegrity(sanitized)}
 <label>Status <select id="filter-status"><option value="">All</option><option value="completed">completed</option><option value="failed">failed</option><option value="inconclusive">inconclusive</option></select></label>
 <label>Comparability <select id="filter-comparability"><option value="">All</option><option value="comparable">comparable</option><option value="limited">limited</option><option value="not_comparable">not_comparable</option></select></label>
 </div>
-<table>
+${renderTableFrame(`<table>
 <thead><tr><th>Spec</th><th>Harness</th><th>Trial</th><th>Status</th><th>Score</th><th>Comparability</th><th>Process</th><th>Usage</th><th>Subagents</th><th>Skills / MCP</th><th>Metric Data</th><th>Artifacts</th></tr></thead>
 <tbody id="trial-rows">${trialRows}</tbody>
-</table>
+</table>`)}
 </section>
 </main>
 <script>
 const filters = ["harness", "spec", "tag", "status", "comparability"];
+labelResponsiveTables();
 for (const name of filters) document.getElementById("filter-" + name).addEventListener("input", applyFilters);
 document.getElementById("ranking-dimension").addEventListener("change", updateRanking);
 const viewButtons = Array.from(document.querySelectorAll(".views button"));
@@ -252,6 +253,14 @@ function rankFor(row, dimension) {
 function rankOrInfinity(value) {
   return value === "" ? "Infinity" : value || "Infinity";
 }
+function labelResponsiveTables() {
+  for (const table of document.querySelectorAll(".table-frame table")) {
+    const labels = Array.from(table.querySelectorAll("thead th")).map((header) => header.textContent.trim());
+    for (const row of table.querySelectorAll("tbody tr")) {
+      Array.from(row.children).forEach((cell, index) => cell.setAttribute("data-label", labels[index] || ""));
+    }
+  }
+}
 </script>
 </body>
 </html>
@@ -267,6 +276,10 @@ const costMetricNames = ["cost", "total_cost_usd"] as const;
 const interactionMetricNames = ["agent_interactions_total"] as const;
 const toolCallMetricNames = ["tool_calls_total"] as const;
 const toolFailureMetricNames = ["tool_calls_failed"] as const;
+
+function renderTableFrame(tableHtml: string): string {
+  return `<div class="table-frame">${tableHtml}</div>`;
+}
 
 function rankingEntries(report: SuiteReport): {
   readonly summary: HarnessSuiteSummary;
